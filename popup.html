@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Account Manager</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Accounts <span id="accountCount" class="account-count"></span></h2>
+            <div class="header-actions">
+                <button id="checkAllTokensBtn" class="icon-btn" title="Check All Tokens" style="display: none;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 4V1L8 5L12 9V6C15.31 6 18 8.69 18 12C18 13.01 17.75 13.97 17.3 14.8L18.76 16.26C19.54 15.03 20 13.57 20 12C20 7.58 16.42 4 12 4ZM12 18C8.69 18 6 15.31 6 12C6 10.99 6.25 10.03 6.7 9.2L5.24 7.74C4.46 8.97 4 10.43 4 12C4 16.42 7.58 20 12 20V23L16 19L12 15V18Z"></path>
+                    </svg>
+                </button>
+                <button id="addFolderBtn" class="icon-btn" title="Create Folder">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path
+                            d="M20 6H12L10 4H4C2.89 4 2.01 4.89 2.01 6L2 18C2 19.11 2.89 20 4 20H20C21.11 20 22 19.11 22 18V8C22 6.89 21.11 6 20 6ZM20 18H4V8H20V18ZM19 13H15V17H13V13H9V11H13V7H15V11H19V13Z">
+                        </path>
+                    </svg>
+                </button>
+                <button id="themeToggleBtn" class="theme-toggle-btn" title="Toggle Theme">
+                    <svg id="themeIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path
+                            d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM12 20V4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20Z">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="invalidSummary" class="invalid-summary-banner" style="display: none;"></div>
+
+        <div id="progressBarContainer" class="progress-bar-container" style="display: none;">
+            <div class="progress-info">
+                <span id="progressText" class="progress-text">Checking...</span>
+                <span id="progressCount" class="progress-count">0/0</span>
+            </div>
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+
+        <div class="search-container">
+            <div class="search-box">
+                <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M21.707 20.293L16.056 14.642C17.263 13.111 18 11.141 18 9C18 4.037 13.963 0 9 0C4.037 0 0 4.037 0 9C0 13.963 4.037 18 9 18C11.141 18 13.111 17.263 14.642 16.056L20.293 21.707C20.488 21.902 20.744 22 21 22C21.256 22 21.512 21.902 21.707 21.707C22.098 21.316 22.098 20.684 21.707 20.293ZM9 16C5.14 16 2 12.86 2 9C2 5.14 5.14 2 9 2C12.86 2 16 5.14 16 9C16 12.86 12.86 16 9 16Z"></path>
+                </svg>
+                <input type="text" id="searchInput" placeholder="Search accounts...">
+                <button id="clearSearchBtn" class="clear-search-btn" title="Clear Search">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M18.41 5.41L17 4L12 9L7 4L5.59 5.41L10.59 10.41L5.59 15.41L7 16.82L12 11.82L17 16.82L18.41 15.41L13.41 10.41L18.41 5.41Z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="account-list" id="accountList">
+        </div>
+
+        <div class="add-token-form" id="addTokenForm" style="display: none;">
+            <input type="password" id="tokenInput" placeholder="Paste Discord token here...">
+            <div class="form-actions">
+                <button class="btn btn-cancel" id="cancelAddBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveTokenBtn">Save</button>
+            </div>
+            <div class="error-msg" id="errorMsg"></div>
+        </div>
+
+        <div class="footer-actions" id="footerActions">
+            <button class="btn btn-primary" id="addCurrentAccountBtn" disabled title="Open a Discord tab to use this feature">Add Current</button>
+            <button class="btn btn-primary" id="showAddBtn">Add Token</button>
+            <button class="btn btn-danger" id="deleteAllBtn" title="Delete All Accounts">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M15 3.999V2H9V3.999H3V5.999H21V3.999H15Z"></path>
+                    <path
+                        d="M5 6.99902V18.999C5 20.101 5.897 20.999 7 20.999H17C18.103 20.999 19 20.101 19 18.999V6.99902H5ZM11 17H9V11H11V17ZM15 17H13V11H15V17Z">
+                    </path>
+                </svg>
+            </button>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+
+</html>

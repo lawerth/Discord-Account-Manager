@@ -1,0 +1,45 @@
+{
+    "manifest_version": 3,
+    "name": "Discord Account Manager",
+    "version": "1.0",
+    "description": "Easily manage and switch between Discord accounts using tokens.",
+    "permissions": [
+        "storage",
+        "scripting",
+        "tabs",
+        "clipboardWrite"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "host_permissions": [
+        "*://*.discord.com/*",
+        "*://*.discordapp.com/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "https://discord.com/*",
+                "https://*.discord.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_start"
+        }
+    ],
+    "icons": {
+        "16": "assets/logo-16px.png",
+        "48": "assets/logo-48px.png",
+        "128": "assets/logo-128px.png"
+    },
+    "action": {
+        "default_popup": "popup.html",
+        "default_title": "Discord Account Manager",
+        "default_icon": {
+            "16": "assets/logo-16px.png",
+            "48": "assets/logo-48px.png",
+            "128": "assets/logo-128px.png"
+        }
+    }
+}

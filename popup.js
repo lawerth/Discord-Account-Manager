@@ -361,7 +361,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return filteredAccounts.some(acc => acc.folderId === folder.id);
         });
 
-        visibleFolders.forEach((folder, folderIndex) => {
+        visibleFolders.forEach((folder) => {
             const folderContainer = document.createElement('div');
             folderContainer.className = `folder-container ${collapsedFolders.includes(folder.id) ? 'collapsed' : ''} ${folder.color ? 'color-' + folder.color : ''}`;
             folderContainer.dataset.id = folder.id;
@@ -989,7 +989,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function animateReorder(container, callback) {
+    function animateReorder(callback) {
         const items = Array.from(listContainer.querySelectorAll('.account-item, .folder-container'));
         const firstPositions = new Map();
 

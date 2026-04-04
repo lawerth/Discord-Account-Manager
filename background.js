@@ -1,4 +1,4 @@
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'START_CHECK') {
         startCheck();
     } else if (message.type === 'REFRESH_ACCOUNT') {

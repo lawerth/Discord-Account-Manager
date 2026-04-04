@@ -29,17 +29,17 @@
         }
     ],
     "icons": {
-        "16": "assets/logo-16px.png",
-        "48": "assets/logo-48px.png",
-        "128": "assets/logo-128px.png"
+        "16": "assets/logo-16.png",
+        "48": "assets/logo-48.png",
+        "128": "assets/logo-128.png"
     },
     "action": {
         "default_popup": "popup.html",
         "default_title": "Discord Account Manager",
         "default_icon": {
-            "16": "assets/logo-16px.png",
-            "48": "assets/logo-48px.png",
-            "128": "assets/logo-128px.png"
+            "16": "assets/logo-16.png",
+            "48": "assets/logo-48.png",
+            "128": "assets/logo-128.png"
         }
     }
 }

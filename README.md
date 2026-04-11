@@ -25,9 +25,9 @@
 
 ---
 
-# 🛠️ Chrome Installation
+# 🛠️ Installation
 1. [Click here](https://chromewebstore.google.com/detail/daibnnodfmdiodinihdmelconnbfgefo?utm_source=item-share-cb) to open the application page.
-2. Install the application in your Chrome by clicking the **Add to Chrome** button. 
+2. Install the application in your browser by clicking the **Add to Chrome** button. 
 
 # 🛠️ Manual Installation
 

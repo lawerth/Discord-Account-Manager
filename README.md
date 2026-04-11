@@ -25,6 +25,10 @@
 
 ---
 
+# 🛠️ Chrome Installation
+1. [Click here](https://chromewebstore.google.com/detail/daibnnodfmdiodinihdmelconnbfgefo?utm_source=item-share-cb) to open the application page.
+2. Install the application in your Chrome by clicking the **Add to Chrome** button. 
+
 # 🛠️ Manual Installation
 
 1. Download this repository to your local storage: [Discord Account Manager](https://github.com/lawerth/Discord-Account-Manager/archive/refs/heads/main.zip)

@@ -10,8 +10,13 @@ if (encodedToken) {
         iframe.style.display = 'none';
         document.documentElement.appendChild(iframe);
         
-        iframe.contentWindow.localStorage.clear();
-        iframe.contentWindow.localStorage.token = `"${token}"`;
+        try {
+            iframe.contentWindow.localStorage.clear();
+            iframe.contentWindow.localStorage.token = `"${token}"`;
+        } catch (storageErr) {
+            console.warn('Cannot access iframe localStorage (CORS):', storageErr);
+            window.localStorage.setItem('token', `"${token}"`);
+        }
         
         const cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);

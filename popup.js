@@ -143,8 +143,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                                     }
                                 ]);
                             }
-                            if (foundToken) return foundToken.replace(/^"|"$/g, '');
-                            logs.push("webpack empty");
+                            if (foundToken && typeof foundToken === 'string') return foundToken.replace(/^"|"$/g, '');
+                            if (foundToken) logs.push("webpack err: foundToken is not a string");
+                            else logs.push("webpack empty");
                         } catch (e) {
                             logs.push("webpack err: " + e.message);
                         }

@@ -866,6 +866,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         errorMsg.textContent = '';
     });
 
+    tokenInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            saveTokenBtn.click();
+        }
+    });
+
     deleteAllBtn.addEventListener('click', () => {
         if (accounts.length === 0 && folders.length === 0) return;
 

@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Discord Hesap Yöneticisi",
+        "description": "Eklentinin adı"
+    },
+    "appDesc": {
+        "message": "Tokenler ile birden fazla Discord hesabı arasında hızlıca geçiş yapın ve düzenleyin.",
+        "description": "Eklentinin açıklaması"
+    }
+}

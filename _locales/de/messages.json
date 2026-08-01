@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Discord Account Manager",
+        "description": "Der Name der Erweiterung"
+    },
+    "appDesc": {
+        "message": "Wechseln und verwalten Sie ganz einfach mehrere Discord-Konten mit Tokens.",
+        "description": "Die Beschreibung der Erweiterung"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Gerenciador de Contas do Discord",
+        "description": "O nome da extensão"
+    },
+    "appDesc": {
+        "message": "Alterne e organize facilmente várias contas do Discord usando tokens.",
+        "description": "A descrição da extensão"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Gestionnaire de Comptes Discord",
+        "description": "Le nom de l'extension"
+    },
+    "appDesc": {
+        "message": "Changez et organisez facilement plusieurs comptes Discord à l'aide de jetons.",
+        "description": "La description de l'extension"
+    }
+}

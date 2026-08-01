@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (tab && tab.url && (tab.url.startsWith('https://discord.com/') || tab.url.startsWith('https://discordapp.com/'))) {
 
-                addCurrentAccountBtn.textContent = 'Searching...';
+                addCurrentAccountBtn.textContent = getTranslation('actions.searching');
 
                 const results = await chrome.scripting.executeScript({
                     target: { tabId: tab.id },
@@ -157,7 +157,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     if (tokenResult.startsWith("ERR:")) {
                         console.error("Token Extraction Failed:", tokenResult);
-                        addCurrentAccountBtn.textContent = 'Not Found';
+                        addCurrentAccountBtn.textContent = getTranslation('actions.notFound');
                         addCurrentAccountBtn.title = 'Debug logs: ' + tokenResult;
                         return;
                     }
@@ -167,17 +167,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const tokenExists = accounts.some(a => a.token === token);
                     if (tokenExists) {
                         addCurrentAccountBtn.disabled = true;
-                        addCurrentAccountBtn.textContent = 'Already Added';
-                        addCurrentAccountBtn.title = 'Account already added';
+                        addCurrentAccountBtn.textContent = getTranslation('actions.alreadyAdded');
+                        addCurrentAccountBtn.title = getTranslation('actions.alreadyAdded');
                         addCurrentAccountBtn.onclick = null;
                     } else {
                         addCurrentAccountBtn.disabled = false;
-                        addCurrentAccountBtn.textContent = 'Add Current';
-                        addCurrentAccountBtn.title = 'Add Currently Active Discord Account';
+                        addCurrentAccountBtn.textContent = getTranslation('actions.addCurrent');
+                        addCurrentAccountBtn.title = getTranslation('actions.addCurrent');
 
                         addCurrentAccountBtn.onclick = async () => {
                             const originalText = addCurrentAccountBtn.textContent;
-                            addCurrentAccountBtn.textContent = 'Adding...';
+                            addCurrentAccountBtn.textContent = getTranslation('actions.adding');
                             addCurrentAccountBtn.disabled = true;
 
                             const userData = await validateToken(token);
@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 await saveAccounts(newAccounts);
                                 checkActiveDiscordTab();
                             } else {
-                                addCurrentAccountBtn.textContent = 'Failed';
+                                addCurrentAccountBtn.textContent = getTranslation('actions.failed');
                                 setTimeout(() => {
                                     addCurrentAccountBtn.textContent = originalText;
                                     addCurrentAccountBtn.disabled = false;
@@ -217,17 +217,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                         };
                     }
                 } else {
-                    addCurrentAccountBtn.textContent = 'No Token Found';
-                    addCurrentAccountBtn.title = 'Could not extract token. Ensure you are fully logged in.';
+                    addCurrentAccountBtn.textContent = getTranslation('actions.noTokenFound');
+                    addCurrentAccountBtn.title = getTranslation('actions.noTokenFound');
                 }
             } else {
-                addCurrentAccountBtn.textContent = 'Add Current';
-                addCurrentAccountBtn.title = 'Open a Discord tab to use this feature';
+                addCurrentAccountBtn.textContent = getTranslation('actions.addCurrent');
+                addCurrentAccountBtn.title = getTranslation('actions.addCurrent');
             }
         } catch (error) {
             console.error('Error checking active tab:', error);
-            addCurrentAccountBtn.textContent = 'Error';
-            addCurrentAccountBtn.title = 'Extension permissions error or reload required.';
+            addCurrentAccountBtn.textContent = getTranslation('actions.error');
+            addCurrentAccountBtn.title = getTranslation('actions.error');
         }
     }
 

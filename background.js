@@ -1,10 +1,35 @@
+let checkAbortController = null;
+
+// Reset any orphaned or stuck check states on extension load
+chrome.storage.local.set({
+    isChecking: false,
+    cancelCheck: false,
+    checkProgress: 0,
+    checkTarget: 'Ready'
+});
+
 chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'START_CHECK') {
         startCheck();
+    } else if (message.type === 'STOP_CHECK') {
+        stopCheck();
     } else if (message.type === 'REFRESH_ACCOUNT') {
         refreshAccount(message.token, message.accId);
     }
 });
+
+async function stopCheck() {
+    if (checkAbortController) {
+        checkAbortController.abort();
+        checkAbortController = null;
+    }
+    await chrome.storage.local.set({
+        isChecking: false,
+        cancelCheck: false,
+        checkTarget: 'Canceled',
+        checkProgress: 0
+    });
+}
 
 async function refreshAccount(token, accId) {
     const result = await validateToken(token);
@@ -49,14 +74,38 @@ async function refreshAccount(token, accId) {
     }
 }
 
-async function validateToken(token) {
+async function validateToken(token, externalSignal) {
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => {
+        try { timeoutController.abort(); } catch (e) { }
+    }, 5000); // 5s timeout max per request
+
+    const onExternalAbort = () => {
+        try { timeoutController.abort(); } catch (e) { }
+    };
+
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            clearTimeout(timeoutId);
+            return { valid: false, error: 'aborted' };
+        }
+        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+
     try {
         const response = await fetch('https://discord.com/api/v10/users/@me', {
-            headers: { 'Authorization': token }
+            headers: { 'Authorization': token },
+            signal: timeoutController.signal
         });
+        clearTimeout(timeoutId);
+        if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
 
         if (response.status === 401 || response.status === 403) {
             return { valid: false, error: 'unauthorized', status: response.status };
+        }
+
+        if (response.status === 429) {
+            return { valid: false, error: 'ratelimit', status: 429 };
         }
 
         if (!response.ok) {
@@ -66,7 +115,15 @@ async function validateToken(token) {
         const data = await response.json();
         return { valid: true, data: data };
     } catch (err) {
-        console.error('Validation error:', err);
+        clearTimeout(timeoutId);
+        if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+
+        if (externalSignal && externalSignal.aborted) {
+            return { valid: false, error: 'aborted' };
+        }
+        if (err.name === 'AbortError') {
+            return { valid: false, error: 'timeout' };
+        }
         return { valid: false, error: 'exception' };
     }
 }
@@ -85,8 +142,10 @@ async function startCheck() {
     }
 
     const accounts = [...discordAccounts];
+    checkAbortController = new AbortController();
     await chrome.storage.local.set({
         isChecking: true,
+        cancelCheck: false,
         checkProgress: 0,
         checkTarget: 'Starting...',
         checkCount: `0/${accounts.length}`,
@@ -99,15 +158,31 @@ async function startCheck() {
 
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
-        const targetName = acc.global_name || acc.username;
+        const targetName = acc.global_name || acc.username || `Account #${i + 1}`;
         const currentCount = `${i + 1}/${accounts.length}`;
+
+        const { cancelCheck: preCancel } = await chrome.storage.local.get(['cancelCheck']);
+        if (preCancel || (checkAbortController && checkAbortController.signal.aborted)) {
+            await stopCheck();
+            return;
+        }
 
         await chrome.storage.local.set({
             checkTarget: targetName,
             checkCount: currentCount
         });
 
-        const result = await validateToken(acc.token);
+        const result = await validateToken(acc.token, checkAbortController ? checkAbortController.signal : null);
+        
+        if (result.error === 'aborted') {
+            await stopCheck();
+            return;
+        }
+
+        if (result.error === 'ratelimit') {
+            await new Promise(r => setTimeout(r, 1500));
+        }
+
         const isInvalid = !result.valid && result.error === 'unauthorized';
         const userData = result.data;
 
@@ -141,9 +216,13 @@ async function startCheck() {
             checkResults: { valid: validCount, invalid: invalidCount }
         });
 
-        if (accounts.length > 5) {
-            await new Promise(r => setTimeout(r, 200));
+        const { cancelCheck: postCancel } = await chrome.storage.local.get(['cancelCheck']);
+        if (postCancel) {
+            await stopCheck();
+            return;
         }
+
+        await new Promise(r => setTimeout(r, 150));
     }
 
     if (hasChanges) {
@@ -153,8 +232,13 @@ async function startCheck() {
     await chrome.storage.local.set({
         isChecking: false,
         checkProgress: 100,
-        checkResults: { valid: validCount, invalid: invalidCount }
+        checkResults: { valid: validCount, invalid: invalidCount },
+        lastCheckAt: Date.now(),
+        lastCheckResults: { valid: validCount, invalid: invalidCount },
+        lastCheckCount: `${accounts.length} total`,
+        cancelCheck: false
     });
+    checkAbortController = null;
 
     setTimeout(() => {
         chrome.storage.local.set({ checkProgress: 0 });

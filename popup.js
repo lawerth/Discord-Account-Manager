@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const saveTokenBtn = document.getElementById('saveTokenBtn');
     const tokenInput = document.getElementById('tokenInput');
     const errorMsg = document.getElementById('errorMsg');
-    const themeBtn = document.getElementById('themeToggleBtn');
+    const themeBtn = document.getElementById('themeSelect');
     const themeIcon = document.getElementById('themeIcon');
     const accountCount = document.getElementById('accountCount');
     const addFolderBtn = document.getElementById('addFolderBtn');
@@ -16,12 +16,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clearSearchBtn = document.getElementById('clearSearchBtn');
     const searchContainer = document.querySelector('.search-container');
     const checkAllTokensBtn = document.getElementById('checkAllTokensBtn');
+    const cancelCheckBtn = document.getElementById('cancelCheckBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsModal = document.getElementById('settingsModal');
+    const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+    const settingsStatusText = document.getElementById('settingsStatusText');
+    const settingsLastSummary = document.getElementById('settingsLastSummary');
+    const settingsProgressBarContainer = document.getElementById('settingsProgressBarContainer');
+    const settingsProgressBar = document.getElementById('settingsProgressBar');
+    const settingsProgressText = document.getElementById('settingsProgressText');
+    const settingsProgressCount = document.getElementById('settingsProgressCount');
     const addCurrentAccountBtn = document.getElementById('addCurrentAccountBtn');
     const progressBarContainer = document.getElementById('progressBarContainer');
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
     const progressCount = document.getElementById('progressCount');
-    const invalidSummary = document.getElementById('invalidSummary');
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -37,24 +46,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    listContainer.addEventListener('dragover', (e) => {
-        if (draggingType === 'account' || draggingType === 'folder') {
-            e.preventDefault();
-            handleAutoScroll(e);
-            if (draggingType === 'account' && (e.target === listContainer || e.target.classList.contains('uncategorized-label'))) {
-                animateReorder(listContainer, () => {
-                    listContainer.appendChild(draggingElement);
-                });
-            }
-        }
-    });
-
-    listContainer.addEventListener('drop', (e) => {
-        stopScroll();
-        if (draggingType === 'account') {
-            e.preventDefault();
-        }
-    });
 
     let accounts = [];
     let folders = [];
@@ -71,6 +62,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     let scrollIntensity = 0;
     const SCROLL_ZONE = 40;
     const MAX_SCROLL_SPEED = 15;
+    let pendingDrag = null;
+    let dragPointerId = null;
+    let dragStarted = false;
+    let ignoreFolderClick = false;
+    let currentFolderHover = null;
+    let currentDragTarget = null;
+    const DRAG_START_THRESHOLD = 5;
 
     const themes = ['discord-dark', 'amoled', 'light'];
     const themeIcons = {
@@ -184,14 +182,29 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                             const userData = await validateToken(token);
                             if (userData) {
-                                const newAccounts = [...accounts, {
-                                    id: userData.id,
-                                    username: userData.username,
-                                    global_name: userData.global_name,
-                                    avatar: userData.avatar,
-                                    token: token,
-                                    folderId: null
-                                }];
+                                const existingIndex = accounts.findIndex(a => a.id === userData.id);
+                                let newAccounts;
+                                if (existingIndex !== -1) {
+                                    newAccounts = [...accounts];
+                                    newAccounts[existingIndex] = {
+                                        ...newAccounts[existingIndex],
+                                        username: userData.username,
+                                        global_name: userData.global_name,
+                                        avatar: userData.avatar,
+                                        token: token,
+                                        invalid: false
+                                    };
+                                } else {
+                                    newAccounts = [...accounts, {
+                                        id: userData.id,
+                                        username: userData.username,
+                                        global_name: userData.global_name,
+                                        avatar: userData.avatar,
+                                        token: token,
+                                        folderId: null,
+                                        invalid: false
+                                    }];
+                                }
                                 await saveAccounts(newAccounts);
                                 checkActiveDiscordTab();
                             } else {
@@ -224,24 +237,65 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (result.selectedTheme) {
                     currentThemeIndex = Math.max(0, themes.indexOf(result.selectedTheme));
                     applyTheme(result.selectedTheme);
+                    if (themeBtn) {
+                        themeBtn.value = result.selectedTheme;
+                    }
+                    if (window.updateCustomThemeSelect) {
+                        window.updateCustomThemeSelect(result.selectedTheme);
+                    }
                 }
 
                 accounts = result.discordAccounts || [];
-                folders = result.discordFolders || [];
+                folders = (result.discordFolders || []).map(({ isEditing, menuOpen, ...rest }) => rest);
                 collapsedFolders = folders.map(f => f.id);
 
                 let hasChanges = false;
                 const folderIds = new Set(folders.map(f => f.id));
-                const cleanedAccounts = accounts.map(acc => {
-                    if (acc.folderId && !folderIds.has(acc.folderId)) {
-                        hasChanges = true;
-                        return { ...acc, folderId: null };
-                    }
-                    return acc;
-                });
 
+                const uniqueAccounts = [];
+                const accountMap = new Map();
+
+                for (const acc of accounts) {
+                    if (!acc) continue;
+                    let cleanAcc = acc;
+                    if (cleanAcc.folderId && !folderIds.has(cleanAcc.folderId)) {
+                        hasChanges = true;
+                        cleanAcc = { ...cleanAcc, folderId: null };
+                    }
+
+                    const key = cleanAcc.id || cleanAcc.token || cleanAcc.username;
+                    if (!key) {
+                        uniqueAccounts.push(cleanAcc);
+                        continue;
+                    }
+
+                    if (!accountMap.has(key)) {
+                        accountMap.set(key, cleanAcc);
+                        uniqueAccounts.push(cleanAcc);
+                    } else {
+                        hasChanges = true;
+                        const existing = accountMap.get(key);
+                        const existingIdx = uniqueAccounts.findIndex(a => (a.id && a.id === key) || (a.token && a.token === key) || (a.username && a.username === key));
+
+                        let merged = { ...existing };
+                        if (existing.invalid && !cleanAcc.invalid) {
+                            merged = { ...merged, ...cleanAcc, invalid: false };
+                        } else if (!existing.invalid && !cleanAcc.invalid) {
+                            merged = { ...merged, ...cleanAcc };
+                        }
+                        if (cleanAcc.folderId && !merged.folderId) {
+                            merged.folderId = cleanAcc.folderId;
+                        }
+
+                        accountMap.set(key, merged);
+                        if (existingIdx !== -1) {
+                            uniqueAccounts[existingIdx] = merged;
+                        }
+                    }
+                }
+
+                accounts = uniqueAccounts;
                 if (hasChanges) {
-                    accounts = cleanedAccounts;
                     chrome.storage.local.set({ discordAccounts: accounts });
                 }
 
@@ -267,12 +321,72 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    function initCustomThemeSelect() {
+        const container = document.getElementById('customThemeSelect');
+        if (!container) return;
+
+        const trigger = container.querySelector('.custom-select-trigger');
+        const options = container.querySelectorAll('.custom-option');
+        const nativeSelect = document.getElementById('themeSelect');
+
+        const themeLabels = {
+            'discord-dark': 'Discord Dark',
+            'amoled': 'AMOLED',
+            'light': 'Light'
+        };
+
+        function updateTrigger(themeValue) {
+            const badge = trigger.querySelector('.theme-badge-dot');
+            const text = trigger.querySelector('.custom-select-text');
+            if (badge) badge.className = `theme-badge-dot ${themeValue}`;
+            if (text) text.textContent = themeLabels[themeValue] || themeValue;
+
+            options.forEach(opt => {
+                if (opt.dataset.value === themeValue) {
+                    opt.classList.add('selected');
+                } else {
+                    opt.classList.remove('selected');
+                }
+            });
+        }
+
+        window.updateCustomThemeSelect = updateTrigger;
+
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            container.classList.toggle('open');
+        });
+
+        options.forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const val = opt.dataset.value;
+                if (nativeSelect) {
+                    nativeSelect.value = val;
+                    nativeSelect.dispatchEvent(new Event('change'));
+                }
+                updateTrigger(val);
+                container.classList.remove('open');
+            });
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!container.contains(e.target)) {
+                container.classList.remove('open');
+            }
+        });
+    }
+
+    initCustomThemeSelect();
+
     if (themeBtn) {
-        themeBtn.addEventListener('click', () => {
-            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
-            const newTheme = themes[currentThemeIndex];
-            applyTheme(newTheme);
-            chrome.storage.local.set({ selectedTheme: newTheme });
+        themeBtn.addEventListener('change', () => {
+            const selectedTheme = themeBtn.value;
+            applyTheme(selectedTheme);
+            chrome.storage.local.set({ selectedTheme: selectedTheme });
+            if (window.updateCustomThemeSelect) {
+                window.updateCustomThemeSelect(selectedTheme);
+            }
         });
     }
 
@@ -288,7 +402,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function saveFolders(newFolders) {
         return new Promise((resolve) => {
-            const foldersToSave = newFolders.map(({ isEditing, ...rest }) => rest);
+            const foldersToSave = newFolders.map(({ isEditing, menuOpen, ...rest }) => rest);
             chrome.storage.local.set({ discordFolders: foldersToSave }, () => {
                 folders = newFolders;
                 renderAccounts();
@@ -302,7 +416,368 @@ document.addEventListener('DOMContentLoaded', async () => {
         collapsedFolders = newCollapsed;
     }
 
+    function clearFolderHover() {
+        if (currentFolderHover) {
+            currentFolderHover.classList.remove('drag-over');
+            currentFolderHover = null;
+        }
+    }
+
+    function updateFolderHover(folderContainer) {
+        if (currentFolderHover === folderContainer) return;
+        clearFolderHover();
+        currentFolderHover = folderContainer;
+        currentFolderHover.classList.add('drag-over');
+    }
+
+    function adjustFolderMenuPosition(folderContainer, folderMenu) {
+        if (!folderMenu) return;
+
+        folderMenu.style.top = 'calc(100% + 8px)';
+        folderMenu.style.bottom = 'auto';
+        folderMenu.style.maxHeight = '';
+        folderMenu.style.overflowY = '';
+
+        const menuRect = folderMenu.getBoundingClientRect();
+        const footerActions = document.getElementById('footerActions');
+        const header = document.querySelector('.header');
+
+        let maxAllowedBottom = window.innerHeight - 12;
+        if (footerActions && footerActions.offsetParent !== null) {
+            const footerRect = footerActions.getBoundingClientRect();
+            if (footerRect.top > 0) {
+                maxAllowedBottom = footerRect.top - 8;
+            }
+        }
+
+        const minAllowedTop = header ? header.getBoundingClientRect().bottom + 8 : 10;
+
+        if (menuRect.bottom > maxAllowedBottom) {
+            folderMenu.style.top = 'auto';
+            folderMenu.style.bottom = 'calc(100% + 8px)';
+
+            const flippedRect = folderMenu.getBoundingClientRect();
+            if (flippedRect.top < minAllowedTop) {
+                const folderHeader = folderContainer.querySelector('.folder-header');
+                const triggerRect = folderHeader ? folderHeader.getBoundingClientRect() : folderContainer.getBoundingClientRect();
+                const availableHeight = Math.max(120, triggerRect.top - minAllowedTop - 8);
+                folderMenu.style.maxHeight = `${availableHeight}px`;
+                folderMenu.style.overflowY = 'auto';
+            }
+        }
+    }
+
+    function collapseAllFolders() {
+        const allFolderIds = folders.map(folder => folder.id);
+        saveCollapsedFolders(allFolderIds);
+        document.querySelectorAll('.folder-container').forEach(folderEl => {
+            folderEl.classList.add('collapsed');
+            const folderIcon = folderEl.querySelector('.folder-icon');
+            if (folderIcon) {
+                folderIcon.style.transform = 'rotate(-90deg)';
+            }
+            const folderContent = folderEl.querySelector('.folder-content');
+            if (folderContent) {
+                folderContent.style.maxHeight = '0';
+                folderContent.style.paddingTop = '0';
+                folderContent.style.paddingBottom = '0';
+                folderContent.style.opacity = '0';
+                folderContent.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    function beginPointerDrag(element, type, pointerId, startX, startY) {
+        folders.forEach(f => {
+            delete f.menuOpen;
+        });
+        listContainer.querySelectorAll('.folder-actions.open').forEach(el => {
+            el.classList.remove('open');
+        });
+        listContainer.querySelectorAll('.folder-menu.open').forEach(el => {
+            el.classList.remove('open');
+        });
+
+        if (type === 'folder') {
+            collapseAllFolders();
+            ignoreFolderClick = true;
+        }
+
+        draggingElement = element;
+        draggingType = type;
+        dragPointerId = pointerId;
+        dragStarted = true;
+        currentDragTarget = null;
+
+        const rect = element.getBoundingClientRect();
+        draggingHeight = rect.height;
+        dragOffsetX = startX - rect.left;
+        dragOffsetY = startY - rect.top;
+
+        dragProxy = element.cloneNode(true);
+        dragProxy.classList.add('drag-proxy');
+        if (type === 'folder') {
+            dragProxy.classList.add('collapsed');
+            const proxyFolderIcon = dragProxy.querySelector('.folder-icon');
+            if (proxyFolderIcon) {
+                proxyFolderIcon.style.transform = 'rotate(-90deg)';
+            }
+            const proxyFolderContent = dragProxy.querySelector('.folder-content');
+            if (proxyFolderContent) {
+                proxyFolderContent.style.maxHeight = '0';
+                proxyFolderContent.style.paddingTop = '0';
+                proxyFolderContent.style.paddingBottom = '0';
+                proxyFolderContent.style.opacity = '0';
+                proxyFolderContent.style.pointerEvents = 'none';
+            }
+        }
+        dragProxy.style.width = rect.width + 'px';
+        dragProxy.style.height = rect.height + 'px';
+        dragProxy.style.left = `${startX - dragOffsetX}px`;
+        dragProxy.style.top = `${startY - dragOffsetY}px`;
+        dragProxy.style.transition = 'none';
+        dragProxy.style.pointerEvents = 'none';
+        dragProxy.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(dragProxy);
+
+        document.body.style.userSelect = 'none';
+        element.classList.add('dragging');
+        movePointerDrag(startX, startY);
+    }
+
+    function finishPointerDrag() {
+        stopScroll();
+        document.body.style.userSelect = '';
+        if (!draggingElement) {
+            cancelPendingDrag();
+            return;
+        }
+
+        const draggedElement = draggingElement;
+        const rect = draggedElement.getBoundingClientRect();
+
+        const cleanup = () => {
+            draggedElement.classList.remove('dragging');
+            // Clear any lingering transitions and transforms
+            const allItems = listContainer.querySelectorAll('.account-item, .folder-container');
+            allItems.forEach(item => {
+                item.style.transition = '';
+                item.style.transform = '';
+            });
+            draggingElement = null;
+            draggingType = null;
+            dragStarted = false;
+            dragPointerId = null;
+            pendingDrag = null;
+            currentDragTarget = null;
+            clearFolderHover();
+        };
+
+        if (dragProxy) {
+            dragProxy.style.transition = 'all 0.2s cubic-bezier(0.2, 0, 0, 1)';
+            dragProxy.style.left = rect.left + 'px';
+            dragProxy.style.top = rect.top + 'px';
+            dragProxy.style.transform = 'scale(1)';
+            dragProxy.style.opacity = '0.7';
+
+            setTimeout(() => {
+                if (dragProxy) {
+                    dragProxy.remove();
+                    dragProxy = null;
+                }
+                cleanup();
+                saveOrderFromDOM();
+                setTimeout(() => { ignoreFolderClick = false; }, 50);
+            }, 200);
+        } else {
+            cleanup();
+            saveOrderFromDOM();
+            setTimeout(() => { ignoreFolderClick = false; }, 50);
+        }
+    }
+
+    function cancelPendingDrag() {
+        document.body.style.userSelect = '';
+        if (pendingDrag && pendingDrag.element) {
+            try {
+                pendingDrag.element.releasePointerCapture(pendingDrag.pointerId);
+            } catch (err) { }
+        }
+        pendingDrag = null;
+        dragPointerId = null;
+        dragStarted = false;
+        currentDragTarget = null;
+        setTimeout(() => { ignoreFolderClick = false; }, 0);
+    }
+
+    function updateFolderDragTarget(target, clientY) {
+        const folderTarget = target.closest('.folder-container');
+        if (!folderTarget || folderTarget === draggingElement) return;
+
+        const header = folderTarget.querySelector('.folder-header');
+        if (!header) return;
+        const rect = header.getBoundingClientRect();
+        const targetCenterY = rect.top + rect.height / 2;
+        const shouldInsertBefore = clientY < targetCenterY;
+
+        const alreadyBefore = folderTarget.previousElementSibling === draggingElement;
+        const alreadyAfter = folderTarget.nextElementSibling === draggingElement;
+        if ((shouldInsertBefore && alreadyBefore) || (!shouldInsertBefore && alreadyAfter)) return;
+
+        animateReorder(listContainer, () => {
+            if (shouldInsertBefore) {
+                folderTarget.insertAdjacentElement('beforebegin', draggingElement);
+            } else {
+                folderTarget.insertAdjacentElement('afterend', draggingElement);
+            }
+        });
+    }
+
+    function updateAccountDragTarget(target, clientY) {
+        const accountTarget = target.closest('.account-item');
+        const folderTarget = target.closest('.folder-container');
+
+        if (accountTarget && accountTarget !== draggingElement) {
+            const rect = accountTarget.getBoundingClientRect();
+            const targetCenterY = rect.top + rect.height / 2;
+            const shouldInsertBefore = clientY < targetCenterY;
+            const parent = accountTarget.parentElement;
+
+            if (parent) {
+                const alreadyBefore = accountTarget.previousElementSibling === draggingElement;
+                const alreadyAfter = accountTarget.nextElementSibling === draggingElement;
+                if ((shouldInsertBefore && alreadyBefore) || (!shouldInsertBefore && alreadyAfter)) {
+                    return;
+                }
+            }
+
+            animateReorder(parent || listContainer, () => {
+                if (shouldInsertBefore) {
+                    accountTarget.insertAdjacentElement('beforebegin', draggingElement);
+                } else {
+                    accountTarget.insertAdjacentElement('afterend', draggingElement);
+                }
+            });
+            clearFolderHover();
+            return;
+        }
+
+        if (folderTarget) {
+            const folderContent = folderTarget.querySelector('.folder-content');
+            if (folderContent) {
+                if (folderContent.contains(draggingElement) && draggingElement.parentElement === folderContent) {
+                    return;
+                }
+
+                const emptyMsg = folderContent.querySelector('.folder-empty-msg');
+                animateReorder(listContainer, () => {
+                    if (emptyMsg) emptyMsg.style.display = 'none';
+                    folderContent.appendChild(draggingElement);
+                });
+                updateFolderHover(folderTarget);
+                return;
+            }
+        }
+
+        const listArea = target.closest('#accountList') || target.closest('.uncategorized-label');
+        if (listArea) {
+            if (draggingElement.parentElement === listContainer && listContainer.lastElementChild === draggingElement) {
+                return;
+            }
+            animateReorder(listContainer, () => {
+                listContainer.appendChild(draggingElement);
+            });
+            clearFolderHover();
+        }
+    }
+
+    function updateDragTarget(clientX, clientY) {
+        const target = document.elementFromPoint(clientX, clientY);
+        if (!target) return;
+
+        const newTarget = draggingType === 'folder' ? target.closest('.folder-container') : target.closest('.account-item, .folder-container, #accountList, .uncategorized-label');
+        currentDragTarget = newTarget;
+
+        if (draggingType === 'folder') {
+            updateFolderDragTarget(target, clientY);
+        } else if (draggingType === 'account') {
+            updateAccountDragTarget(target, clientY);
+        }
+    }
+
+    function movePointerDrag(clientX, clientY) {
+        if (dragProxy) {
+            dragProxy.style.left = (clientX - dragOffsetX) + 'px';
+            dragProxy.style.top = (clientY - dragOffsetY) + 'px';
+        }
+
+        handleAutoScroll({ clientY });
+
+        if (dragProxy) {
+            const rect = dragProxy.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            updateDragTarget(centerX, centerY);
+        } else {
+            updateDragTarget(clientX, clientY);
+        }
+    }
+
+    function onPointerMove(e) {
+        if (e.pointerId !== dragPointerId) return;
+        if (!dragStarted && pendingDrag) {
+            const distance = Math.hypot(e.clientX - pendingDrag.startX, e.clientY - pendingDrag.startY);
+            if (distance >= DRAG_START_THRESHOLD) {
+                beginPointerDrag(pendingDrag.element, pendingDrag.type, pendingDrag.pointerId, pendingDrag.startX, pendingDrag.startY);
+            }
+        }
+
+        if (dragStarted) {
+            movePointerDrag(e.clientX, e.clientY);
+        }
+    }
+
+    function onPointerUp(e) {
+        if (e.pointerId !== dragPointerId) return;
+        if (dragStarted) {
+            finishPointerDrag();
+        } else {
+            cancelPendingDrag();
+        }
+    }
+
+    function onPointerCancel(e) {
+        if (e.pointerId !== dragPointerId) return;
+        if (dragStarted) {
+            finishPointerDrag();
+        } else {
+            cancelPendingDrag();
+        }
+    }
+
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointercancel', onPointerCancel);
+
+    document.addEventListener('click', (e) => {
+        const folderMenuBtn = e.target.closest('.folder-menu-btn');
+        const folderMenu = e.target.closest('.folder-menu');
+
+        if (!folderMenuBtn && !folderMenu) {
+            folders.forEach(f => {
+                delete f.menuOpen;
+            });
+            listContainer.querySelectorAll('.folder-actions.open').forEach(el => {
+                el.classList.remove('open');
+            });
+            listContainer.querySelectorAll('.folder-menu.open').forEach(el => {
+                el.classList.remove('open');
+            });
+        }
+    });
+
     function renderAccounts() {
+        const savedScrollTop = listContainer ? listContainer.scrollTop : 0;
         listContainer.innerHTML = '';
 
         const filteredAccounts = searchQuery.trim() === ''
@@ -324,21 +799,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const count = searchQuery.trim() === '' ? accounts.length : filteredAccounts.length;
             accountCount.textContent = count > 0 ? count : '';
             accountCount.style.display = count > 0 ? 'inline-block' : 'none';
-        }
-
-        if (invalidSummary) {
-            const invalidCount = accounts.filter(acc => acc.invalid).length;
-            if (invalidCount > 0) {
-                invalidSummary.style.display = 'flex';
-                invalidSummary.innerHTML = `
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"></path>
-                    </svg>
-                    <span>${invalidCount} Invalid token${invalidCount > 1 ? 's' : ''} detected</span>
-                `;
-            } else {
-                invalidSummary.style.display = 'none';
-            }
         }
 
         if (searchContainer) {
@@ -372,42 +832,41 @@ document.addEventListener('DOMContentLoaded', async () => {
             const isEditing = folder.isEditing;
 
             folderContainer.innerHTML = `
-                <div class="folder-header" draggable="${!isEditing}" data-id="${folder.id}">
+                <div class="folder-header" data-id="${folder.id}">
                     <div class="folder-icon">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7 10L12 15L17 10H7Z"></path>
                         </svg>
                     </div>
-                    ${isEditing ? `
-                        <div class="edit-mode-controls">
-                            <input type="text" class="folder-name-input" value="${folder.name}" autofocus placeholder="Folder Name">
-                            <div class="color-palette">
-                                <div class="color-option default ${!folder.color ? 'active' : ''}" data-color=""></div>
-                                <div class="color-option blue ${folder.color === 'blue' ? 'active' : ''}" data-color="blue" title="Blue"></div>
-                                <div class="color-option green ${folder.color === 'green' ? 'active' : ''}" data-color="green" title="Green"></div>
-                                <div class="color-option yellow ${folder.color === 'yellow' ? 'active' : ''}" data-color="yellow" title="Yellow"></div>
-                                <div class="color-option red ${folder.color === 'red' ? 'active' : ''}" data-color="red" title="Red"></div>
-                                <div class="color-option purple ${folder.color === 'purple' ? 'active' : ''}" data-color="purple" title="Purple"></div>
+                    <div class="folder-name-wrapper">
+                        <div class="folder-name">${folder.name}</div>
+                        ${count > 0 ? `<span class="folder-count">${count}</span>` : ''}
+                    </div>
+                    <div class="folder-actions${folder.menuOpen ? ' open' : ''}">
+                        <button class="icon-btn folder-menu-btn" title="Folder options">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="5" cy="12" r="1.5"></circle>
+                                <circle cx="12" cy="12" r="1.5"></circle>
+                                <circle cx="19" cy="12" r="1.5"></circle>
+                            </svg>
+                        </button>
+                        <div class="folder-menu${folder.menuOpen ? ' open' : ''}">
+                            <div class="folder-menu-edit">
+                                <input type="text" class="folder-name-input" value="${folder.name}" autofocus placeholder="Folder Name">
+                                <div class="color-palette">
+                                    <div class="color-option default ${!folder.color ? 'active' : ''}" data-color="" title="Default"></div>
+                                    <div class="color-option blue ${folder.color === 'blue' ? 'active' : ''}" data-color="blue" title="Blue"></div>
+                                    <div class="color-option green ${folder.color === 'green' ? 'active' : ''}" data-color="green" title="Green"></div>
+                                    <div class="color-option yellow ${folder.color === 'yellow' ? 'active' : ''}" data-color="yellow" title="Yellow"></div>
+                                    <div class="color-option red ${folder.color === 'red' ? 'active' : ''}" data-color="red" title="Red"></div>
+                                    <div class="color-option purple ${folder.color === 'purple' ? 'active' : ''}" data-color="purple" title="Purple"></div>
+                                </div>
+                                <div class="folder-menu-actions">
+                                    <button class="btn save-folder-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>Save</button>
+                                    <button class="btn delete-folder-panel-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3.999V2H9V3.999H3V5.999H21V3.999H15Z"></path><path d="M5 6.99902V18.999C5 20.101 5.897 20.999 7 20.999H17C18.103 20.999 19 20.101 19 18.999V6.99902H5ZM11 17H9V11H11V17ZM15 17H13V11H15V17Z"></path></svg>Delete</button>
+                                </div>
                             </div>
                         </div>
-                    ` : `
-                        <div class="folder-name-wrapper">
-                            <div class="folder-name">${folder.name}</div>
-                            ${count > 0 ? `<span class="folder-count">${count}</span>` : ''}
-                        </div>
-                    `}
-                    <div class="folder-actions">
-                        <button class="icon-btn edit-folder-btn" title="Edit Folder">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M3 17.25V21H6.75L17.81 9.94L14.06 6.19L3 17.25ZM20.71 7.04C21.1 6.65 21.1 6.02 20.71 5.63L18.37 3.29C17.98 2.9 17.35 2.9 16.96 3.29L15.13 5.12L18.88 8.87L20.71 7.04Z"></path>
-                            </svg>
-                        </button>
-                        <button class="icon-btn delete-folder-btn" title="Delete Folder">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M15 3.999V2H9V3.999H3V5.999H21V3.999H15Z"></path>
-                                <path d="M5 6.99902V18.999C5 20.101 5.897 20.999 7 20.999H17C18.103 20.999 19 20.101 19 18.999V6.99902H5ZM11 17H9V11H11V17ZM15 17H13V11H15V17Z"></path>
-                            </svg>
-                        </button>
                     </div>
                 </div>
                 <div class="folder-content"></div>
@@ -416,220 +875,138 @@ document.addEventListener('DOMContentLoaded', async () => {
             const folderHeader = folderContainer.querySelector('.folder-header');
             const folderContent = folderContainer.querySelector('.folder-content');
 
-            folderHeader.addEventListener('click', (e) => {
-                if (e.target.closest('.icon-btn') || e.target.closest('input')) return;
-                const id = folder.id;
-                if (collapsedFolders.includes(id)) {
-                    saveCollapsedFolders(collapsedFolders.filter(fid => fid !== id));
-                } else {
-                    saveCollapsedFolders([...collapsedFolders, id]);
-                }
-                folderContainer.classList.toggle('collapsed');
-            });
+            const folderMenuBtn = folderContainer.querySelector('.folder-menu-btn');
+            const folderMenu = folderContainer.querySelector('.folder-menu');
 
-            const editBtn = folderContainer.querySelector('.edit-folder-btn');
-            editBtn.addEventListener('mousedown', (e) => {
+            folderMenuBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-
-                if (folder.isEditing) {
-                    const input = folderContainer.querySelector('.folder-name-input');
-                    if (input) {
-                        folder.name = input.value || 'New Folder';
+                folders.forEach(f => {
+                    if (f.id === folder.id) {
+                        f.menuOpen = !f.menuOpen;
+                    } else {
+                        delete f.menuOpen;
                     }
-                    delete folder.isEditing;
-                    saveFolders([...folders]);
-                } else {
-                    folders.forEach(f => {
-                        if (f.id !== folder.id && f.isEditing) {
-                            const otherInput = document.querySelector(`.folder-container[data-id="${f.id}"] .folder-name-input`);
-                            if (otherInput) {
-                                f.name = otherInput.value || 'New Folder';
-                            }
-                            delete f.isEditing;
+                });
+                renderAccounts();
+                setTimeout(() => {
+                    const newFolderContainer = listContainer.querySelector(`.folder-container[data-id="${folder.id}"]`);
+                    const newFolderMenu = newFolderContainer ? newFolderContainer.querySelector('.folder-menu') : null;
+                    if (newFolderMenu && newFolderMenu.classList.contains('open')) {
+                        adjustFolderMenuPosition(newFolderContainer, newFolderMenu);
+                        const input = newFolderContainer.querySelector('.folder-name-input');
+                        if (input) {
+                            input.focus({ preventScroll: true });
+                            input.setSelectionRange(input.value.length, input.value.length);
                         }
-                    });
-
-                    folder.isEditing = true;
-                    renderAccounts();
-                }
+                    }
+                }, 0);
             });
+
+            if (folderMenu) {
+                folderMenu.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+            }
+
+
+            const deleteFolderPanelBtn = folderContainer.querySelector('.delete-folder-panel-btn');
+            if (deleteFolderPanelBtn) {
+                deleteFolderPanelBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const newFolders = folders.filter(f => f.id !== folder.id).map(({ isEditing, menuOpen, ...rest }) => rest);
+                    const newAccounts = accounts.map(acc => acc.folderId === folder.id ? { ...acc, folderId: null } : acc);
+                    chrome.storage.local.set({ discordFolders: newFolders, discordAccounts: newAccounts }, () => {
+                        folders = newFolders;
+                        accounts = newAccounts;
+                        renderAccounts();
+                    });
+                });
+            }
 
             const nameInput = folderContainer.querySelector('.folder-name-input');
             if (nameInput) {
                 nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
-                nameInput.addEventListener('blur', () => {
-                    folder.name = nameInput.value || 'New Folder';
-                });
                 nameInput.addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') {
                         folder.name = nameInput.value || 'New Folder';
-                        delete folder.isEditing;
+                        folder.menuOpen = false;
                         saveFolders([...folders]);
                     }
                 });
             }
 
-            const colorOptions = folderContainer.querySelectorAll('.color-option');
-            colorOptions.forEach(opt => {
-                opt.addEventListener('mousedown', (e) => {
+            const saveFolderBtn = folderContainer.querySelector('.save-folder-btn');
+            if (saveFolderBtn) {
+                saveFolderBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    e.preventDefault();
                     if (nameInput) {
                         folder.name = nameInput.value || 'New Folder';
                     }
-                    const color = opt.dataset.color || null;
-                    folder.color = color;
+                    folder.menuOpen = false;
                     saveFolders([...folders]);
                 });
-            });
+            }
 
-            const deleteBtn = folderContainer.querySelector('.delete-folder-btn');
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const newFolders = folders.filter(f => f.id !== folder.id);
-                const newAccounts = accounts.map(acc => acc.folderId === folder.id ? { ...acc, folderId: null } : acc);
-                chrome.storage.local.set({ discordFolders: newFolders, discordAccounts: newAccounts }, () => {
-                    folders = newFolders;
-                    accounts = newAccounts;
-                    renderAccounts();
-                });
-            });
+            if (folderMenu && folderMenu.classList.contains('open')) {
+                adjustFolderMenuPosition(folderContainer, folderMenu);
+            }
 
-            folderHeader.addEventListener('dragstart', (e) => {
-                draggingElement = folderContainer;
-                draggingType = 'folder';
-
-                dragProxy = folderContainer.cloneNode(true);
-                dragProxy.classList.add('drag-proxy');
-                const rect = folderContainer.getBoundingClientRect();
-                draggingHeight = rect.height;
-                dragProxy.style.width = rect.width + 'px';
-                dragProxy.style.height = rect.height + 'px';
-
-                dragOffsetX = e.clientX - rect.left;
-                dragOffsetY = e.clientY - rect.top;
-
-                document.body.appendChild(dragProxy);
-
-                const img = new Image();
-                img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-                e.dataTransfer.setDragImage(img, 0, 0);
-
-                setTimeout(() => folderContainer.classList.add('dragging'), 0);
-            });
-
-            folderHeader.addEventListener('drag', (e) => {
-                if (dragProxy && e.clientX > 0) {
-                    dragProxy.style.left = (e.clientX - dragOffsetX) + 'px';
-                    dragProxy.style.top = (e.clientY - dragOffsetY) + 'px';
-                }
-            });
-
-            folderHeader.addEventListener('dragend', () => {
-                stopScroll();
-
-                const finalSnap = () => {
-                    folderContainer.classList.remove('dragging');
-                    draggingElement = null;
-                    draggingType = null;
-                    saveOrderFromDOM();
+            const colorOptions = folderContainer.querySelectorAll('.color-option');
+            colorOptions.forEach(opt => {
+                const applyColor = (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const color = opt.dataset.color || null;
+                    if (folder.color === color) return;
+                    folder.color = color;
+                    saveFolders([...folders]);
                 };
 
-                if (dragProxy) {
-                    const rect = folderContainer.getBoundingClientRect();
-                    dragProxy.style.transition = 'all 0.2s cubic-bezier(0.2, 0, 0, 1)';
-                    dragProxy.style.left = rect.left + 'px';
-                    dragProxy.style.top = rect.top + 'px';
-                    dragProxy.style.transform = 'scale(1)';
-                    dragProxy.style.opacity = '0.7';
+                opt.addEventListener('click', applyColor);
+            });
 
-                    setTimeout(() => {
-                        if (dragProxy) {
-                            dragProxy.remove();
-                            dragProxy = null;
-                        }
-                        finalSnap();
-                    }, 200);
+            folderHeader.addEventListener('click', (e) => {
+                if (ignoreFolderClick) {
+                    ignoreFolderClick = false;
+                    return;
+                }
+                if (e.target.closest('.folder-actions, .icon-btn, .color-option, .folder-menu') || e.target.closest('input')) return;
+
+                const id = folder.id;
+                const isCollapsed = collapsedFolders.includes(id);
+                if (isCollapsed) {
+                    saveCollapsedFolders(collapsedFolders.filter(fid => fid !== id));
+                    folderContainer.classList.remove('collapsed');
+                    if (folderContent) {
+                        folderContent.style.maxHeight = '';
+                        folderContent.style.paddingTop = '';
+                        folderContent.style.paddingBottom = '';
+                        folderContent.style.opacity = '';
+                        folderContent.style.pointerEvents = '';
+                    }
                 } else {
-                    finalSnap();
+                    saveCollapsedFolders([...collapsedFolders, id]);
+                    folderContainer.classList.add('collapsed');
                 }
             });
 
-            folderHeader.addEventListener('dragover', (e) => {
+            folderHeader.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return;
+                if (e.target.closest('.icon-btn') || e.target.closest('input') || e.target.closest('.folder-menu')) return;
                 e.preventDefault();
-                handleAutoScroll(e);
-                if (draggingType !== 'folder' || draggingElement === folderContainer) return;
 
-                const bounding = folderHeader.getBoundingClientRect();
-                const targetCenterY = bounding.y + (bounding.height / 2);
-                const draggedCenterY = (e.clientY - dragOffsetY) + (draggingHeight / 2);
-
-                animateReorder(listContainer, () => {
-                    if (draggedCenterY < targetCenterY) {
-                        folderContainer.insertAdjacentElement('beforebegin', draggingElement);
-                    } else {
-                        folderContainer.insertAdjacentElement('afterend', draggingElement);
-                    }
-                });
-            });
-
-            folderContainer.addEventListener('dragover', (e) => {
-                if (draggingType === 'account') {
-                    e.preventDefault();
-                    handleAutoScroll(e);
-                    folderContainer.classList.add('drag-over');
-
-                    const content = folderContainer.querySelector('.folder-content');
-                    if (content) {
-                        const emptyMsg = content.querySelector('.folder-empty-msg');
-                        const accountsInFolder = Array.from(content.querySelectorAll('.account-item')).filter(item => item !== draggingElement);
-
-                        const draggedCenterY = (e.clientY - dragOffsetY) + (draggingHeight / 2);
-
-                        let closestItem = null;
-                        let minDistance = Infinity;
-
-                        accountsInFolder.forEach(item => {
-                            const rect = item.getBoundingClientRect();
-                            const itemCenterY = rect.y + rect.height / 2;
-                            const distance = Math.abs(draggedCenterY - itemCenterY);
-                            if (distance < minDistance) {
-                                minDistance = distance;
-                                closestItem = item;
-                            }
-                        });
-
-                        if (draggingElement.parentElement !== content || (closestItem && draggingElement.nextElementSibling !== closestItem && draggingElement.previousElementSibling !== closestItem)) {
-                            animateReorder(listContainer, () => {
-                                if (emptyMsg) emptyMsg.style.display = 'none';
-
-                                if (closestItem) {
-                                    const rect = closestItem.getBoundingClientRect();
-                                    const itemCenterY = rect.y + rect.height / 2;
-                                    if (draggedCenterY < itemCenterY) {
-                                        closestItem.insertAdjacentElement('beforebegin', draggingElement);
-                                    } else {
-                                        closestItem.insertAdjacentElement('afterend', draggingElement);
-                                    }
-                                } else {
-                                    content.appendChild(draggingElement);
-                                }
-                            });
-                        }
-                    }
-                }
-            });
-            folderContainer.addEventListener('dragleave', () => folderContainer.classList.remove('drag-over'));
-            folderContainer.addEventListener('drop', (e) => {
-                if (draggingType === 'account') {
-                    e.preventDefault();
-                    folderContainer.classList.remove('drag-over');
-                }
-            });
-
-            folderContent.addEventListener('dragover', (e) => {
-                if (draggingType === 'account') {
-                    e.preventDefault();
-                }
+                pendingDrag = {
+                    element: folderContainer,
+                    type: 'folder',
+                    pointerId: e.pointerId,
+                    startX: e.clientX,
+                    startY: e.clientY
+                };
+                dragPointerId = e.pointerId;
+                try {
+                    folderHeader.setPointerCapture(e.pointerId);
+                } catch (err) { }
             });
 
             if (folderAccounts.length === 0) {
@@ -665,12 +1042,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (filteredAccounts.length === 0 && visibleFolders.length === 0 && searchQuery.trim() !== '') {
             listContainer.innerHTML = '<div class="empty-state">No matching accounts found.</div>';
         }
+
+        if (listContainer) {
+            listContainer.scrollTop = savedScrollTop;
+        }
+
+        requestAnimationFrame(() => {
+            const openMenuEl = listContainer.querySelector('.folder-menu.open');
+            if (openMenuEl) {
+                const parentFolderContainer = openMenuEl.closest('.folder-container');
+                if (parentFolderContainer) {
+                    adjustFolderMenuPosition(parentFolderContainer, openMenuEl);
+                }
+            }
+        });
     }
 
     function createAccountItem(acc, index) {
         const item = document.createElement('div');
         item.className = 'account-item';
-        item.setAttribute('draggable', 'true');
         item.dataset.index = index;
         item.dataset.token = acc.token;
 
@@ -747,82 +1137,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             saveAccounts(newAccs);
         });
 
-        item.addEventListener('dragstart', (e) => {
-            draggingElement = item;
-            draggingType = 'account';
-
-            dragProxy = item.cloneNode(true);
-            dragProxy.classList.add('drag-proxy');
-            const rect = item.getBoundingClientRect();
-            draggingHeight = rect.height;
-            dragProxy.style.width = rect.width + 'px';
-            dragProxy.style.height = rect.height + 'px';
-
-            dragOffsetX = e.clientX - rect.left;
-            dragOffsetY = e.clientY - rect.top;
-
-            document.body.appendChild(dragProxy);
-
-            const img = new Image();
-            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-            e.dataTransfer.setDragImage(img, 0, 0);
-
-            setTimeout(() => item.classList.add('dragging'), 0);
-        });
-
-        item.addEventListener('drag', (e) => {
-            if (dragProxy && e.clientX > 0) {
-                dragProxy.style.left = (e.clientX - dragOffsetX) + 'px';
-                dragProxy.style.top = (e.clientY - dragOffsetY) + 'px';
-            }
-        });
-
-        item.addEventListener('dragend', () => {
-            stopScroll();
-
-            const finalSnap = () => {
-                item.classList.remove('dragging');
-                draggingElement = null;
-                draggingType = null;
-                saveOrderFromDOM();
-            };
-
-            if (dragProxy) {
-                const rect = item.getBoundingClientRect();
-                dragProxy.style.transition = 'all 0.2s cubic-bezier(0.2, 0, 0, 1)';
-                dragProxy.style.left = rect.left + 'px';
-                dragProxy.style.top = rect.top + 'px';
-                dragProxy.style.transform = 'scale(1)';
-                dragProxy.style.opacity = '0.7';
-
-                setTimeout(() => {
-                    if (dragProxy) {
-                        dragProxy.remove();
-                        dragProxy = null;
-                    }
-                    finalSnap();
-                }, 200);
-            } else {
-                finalSnap();
-            }
-        });
-
-        item.addEventListener('dragover', (e) => {
+        item.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            if (e.target.closest('.icon-btn')) return;
             e.preventDefault();
-            handleAutoScroll(e);
-            if (draggingType !== 'account' || draggingElement === item) return;
 
-            const bounding = item.getBoundingClientRect();
-            const targetCenterY = bounding.y + (bounding.height / 2);
-            const draggedCenterY = (e.clientY - dragOffsetY) + (draggingHeight / 2);
-
-            animateReorder(item.parentElement, () => {
-                if (draggedCenterY < targetCenterY) {
-                    item.insertAdjacentElement('beforebegin', draggingElement);
-                } else {
-                    item.insertAdjacentElement('afterend', draggingElement);
-                }
-            });
+            pendingDrag = {
+                element: item,
+                type: 'account',
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY
+            };
+            dragPointerId = e.pointerId;
+            try {
+                item.setPointerCapture(e.pointerId);
+            } catch (err) { }
         });
 
         return item;
@@ -872,10 +1202,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    deleteAllBtn.addEventListener('click', () => {
+    function showConfirmDialog(title, message, confirmText = 'Delete All') {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('customConfirmModal');
+            const titleEl = document.getElementById('confirmModalTitle');
+            const msgEl = document.getElementById('confirmModalMessage');
+            const okBtn = document.getElementById('okConfirmBtn');
+            const cancelBtn = document.getElementById('cancelConfirmBtn');
+
+            if (!modal || !okBtn || !cancelBtn) {
+                resolve(window.confirm(message));
+                return;
+            }
+
+            if (titleEl) titleEl.textContent = title;
+            if (msgEl) msgEl.textContent = message;
+            if (okBtn) okBtn.textContent = confirmText;
+
+            modal.style.display = 'flex';
+
+            const onOk = () => {
+                cleanup();
+                resolve(true);
+            };
+
+            const onCancel = () => {
+                cleanup();
+                resolve(false);
+            };
+
+            const cleanup = () => {
+                modal.style.display = 'none';
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+            };
+
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+        });
+    }
+
+    deleteAllBtn.addEventListener('click', async () => {
         if (accounts.length === 0 && folders.length === 0) return;
 
-        if (confirm('Are you sure you want to delete all accounts and folders? This action cannot be undone.')) {
+        const confirmed = await showConfirmDialog(
+            'Delete All Accounts?',
+            'Are you sure you want to delete all accounts and folders? This action cannot be undone.',
+            'Delete All'
+        );
+
+        if (confirmed) {
             chrome.storage.local.set({
                 discordAccounts: [],
                 discordFolders: [],
@@ -929,7 +1305,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     username: userData.username,
                     global_name: userData.global_name,
                     avatar: userData.avatar,
-                    token: token
+                    token: token,
+                    invalid: false
                 };
             } else {
                 newAccounts = [...accounts, {
@@ -938,7 +1315,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     global_name: userData.global_name,
                     avatar: userData.avatar,
                     token: token,
-                    folderId: null
+                    folderId: null,
+                    invalid: false
                 }];
             }
             await saveAccounts(newAccounts);
@@ -996,17 +1374,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function animateReorder(callback) {
-        const items = Array.from(listContainer.querySelectorAll('.account-item, .folder-container'));
+    function animateReorder(containerOrCallback, callback) {
+        let container = listContainer;
+        let action = containerOrCallback;
+
+        if (typeof callback === 'function') {
+            container = containerOrCallback;
+            action = callback;
+        }
+
+        const items = Array.from(container.querySelectorAll('.account-item, .folder-container'));
         const firstPositions = new Map();
 
         items.forEach(item => {
             firstPositions.set(item, item.getBoundingClientRect());
         });
 
-        callback();
+        action();
 
+        const transforms = [];
         items.forEach(item => {
+            if (item === draggingElement) return; // Skip the dragging element
             const firstRect = firstPositions.get(item);
             if (!firstRect) return;
 
@@ -1015,12 +1403,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             const deltaY = firstRect.top - lastRect.top;
 
             if (deltaX !== 0 || deltaY !== 0) {
-                item.style.transition = 'none';
-                item.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
-                item.offsetHeight;
-                item.style.transition = '';
-                item.style.transform = '';
+                transforms.push({ item, deltaX, deltaY });
             }
+        });
+
+        transforms.forEach(({ item, deltaX, deltaY }) => {
+            item.style.transition = 'none';
+            item.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+            item.offsetHeight; // Force reflow
+            item.style.transition = 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)';
+            item.style.transform = '';
         });
     }
 
@@ -1060,7 +1452,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         await Promise.all([
             chrome.storage.local.set({ discordAccounts: accounts }),
-            chrome.storage.local.set({ discordFolders: folders.map(({ isEditing, ...rest }) => rest) })
+            chrome.storage.local.set({ discordFolders: folders.map(({ isEditing, menuOpen, ...rest }) => rest) })
         ]);
 
         renderAccounts();
@@ -1101,44 +1493,240 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', async () => {
+            if (settingsModal) {
+                await loadSettingsStatus();
+                settingsModal.style.display = 'flex';
+            }
+        });
+    }
+
+    if (closeSettingsBtn) {
+        closeSettingsBtn.addEventListener('click', () => {
+            if (settingsModal) {
+                settingsModal.style.display = 'none';
+            }
+        });
+    }
+
+    if (settingsModal) {
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) {
+                settingsModal.style.display = 'none';
+            }
+        });
+    }
+
+    document.querySelectorAll('.settings-link-btn').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const url = link.href;
+            if (url) {
+                chrome.tabs.create({ url });
+            }
+        });
+    });
+
     if (checkAllTokensBtn) {
         checkAllTokensBtn.addEventListener('click', () => {
             chrome.runtime.sendMessage({ type: 'START_CHECK' });
+            if (settingsProgressBarContainer) {
+                settingsProgressBarContainer.style.display = 'block';
+            }
+            if (settingsStatusText) {
+                settingsStatusText.textContent = 'Checking...';
+            }
+            if (settingsLastSummary) {
+                settingsLastSummary.textContent = 'Current check in progress...';
+            }
+            if (cancelCheckBtn) {
+                cancelCheckBtn.style.display = 'flex';
+                cancelCheckBtn.disabled = false;
+            }
+        });
+    }
+
+    if (cancelCheckBtn) {
+        cancelCheckBtn.addEventListener('click', () => {
+            chrome.runtime.sendMessage({ type: 'STOP_CHECK' });
+            chrome.storage.local.set({
+                isChecking: false,
+                cancelCheck: false,
+                checkTarget: 'Canceled',
+                checkProgress: 0
+            });
+            updateProgressUI(false, 0, 'Canceled', '', null);
+            if (settingsStatusText) {
+                settingsStatusText.textContent = 'Check canceled.';
+            }
         });
     }
 
     function updateProgressUI(isChecking, progress, target, count, results) {
-        if (!checkAllTokensBtn || !progressBarContainer || !progressBar) return;
+        if (!checkAllTokensBtn || !settingsProgressBarContainer || !settingsProgressBar) return;
 
         if (isChecking) {
             checkAllTokensBtn.classList.add('loading');
             checkAllTokensBtn.title = 'Check in progress...';
-            progressBarContainer.style.display = 'block';
-            progressBar.style.width = progress + '%';
-            if (progressText) progressText.textContent = target ? `Checking: ${target}` : 'Checking...';
-            if (progressCount) progressCount.textContent = count || '0/0';
+            settingsProgressBarContainer.style.display = 'block';
+            settingsProgressBar.style.width = progress + '%';
+            if (settingsProgressText) settingsProgressText.textContent = target ? `Checking: ${target}` : 'Checking...';
+            if (settingsProgressCount) settingsProgressCount.textContent = count || '0/0';
+            if (cancelCheckBtn) {
+                cancelCheckBtn.style.display = 'flex';
+                cancelCheckBtn.disabled = false;
+                const span = cancelCheckBtn.querySelector('span');
+                if (span) span.textContent = 'Cancel Check';
+                else cancelCheckBtn.textContent = 'Cancel Check';
+            }
         } else {
             checkAllTokensBtn.classList.remove('loading');
             checkAllTokensBtn.title = 'Check All Tokens';
+            if (cancelCheckBtn) {
+                cancelCheckBtn.style.display = 'none';
+            }
             if (progress >= 100) {
-                if (progressText) {
+                if (settingsProgressText) {
                     if (results) {
-                        progressText.textContent = `Completed: ${results.valid} Valid, ${results.invalid} Invalid`;
+                        settingsProgressText.textContent = `Completed: ${results.valid} Valid, ${results.invalid} Invalid`;
                     } else {
-                        progressText.textContent = 'Check Completed';
+                        settingsProgressText.textContent = 'Check Completed';
                     }
                 }
-                if (progressCount) progressCount.textContent = count || '';
-                progressBar.style.width = '100%';
+                if (settingsProgressCount) settingsProgressCount.textContent = count || '';
+                settingsProgressBar.style.width = '100%';
                 setTimeout(() => {
                     chrome.storage.local.get(['isChecking'], (res) => {
-                        if (!res.isChecking) progressBarContainer.style.display = 'none';
+                        if (!res.isChecking && settingsProgressBarContainer) settingsProgressBarContainer.style.display = 'none';
                     });
                 }, 4000);
             } else {
-                progressBarContainer.style.display = 'none';
+                if (settingsProgressBarContainer) settingsProgressBarContainer.style.display = 'none';
             }
         }
+    }
+
+    async function loadSettingsStatus() {
+        if (!settingsStatusText || !settingsLastSummary) return;
+
+        chrome.storage.local.get(['lastCheckAt', 'lastCheckResults', 'checkCount', 'isChecking', 'checkProgress', 'checkTarget', 'cancelCheck', 'discordAccounts'], (res) => {
+            if (res.cancelCheck) {
+                chrome.storage.local.set({ isChecking: false, cancelCheck: false, checkProgress: 0, checkTarget: 'Ready' });
+                res.isChecking = false;
+            }
+
+            if (res.isChecking) {
+                settingsStatusText.textContent = res.checkTarget ? `Checking: ${res.checkTarget}` : 'Checking...';
+                if (settingsProgressBarContainer) settingsProgressBarContainer.style.display = 'block';
+                if (settingsProgressBar) settingsProgressBar.style.width = (res.checkProgress || 0) + '%';
+                if (settingsProgressText) settingsProgressText.textContent = res.checkTarget ? `Checking: ${res.checkTarget}` : 'Checking...';
+                if (settingsProgressCount) settingsProgressCount.textContent = res.checkCount || '0/0';
+                settingsLastSummary.textContent = 'Current check in progress...';
+                if (cancelCheckBtn) {
+                    cancelCheckBtn.style.display = 'flex';
+                    cancelCheckBtn.disabled = false;
+                    const span = cancelCheckBtn.querySelector('span');
+                    if (span) span.textContent = 'Cancel Check';
+                    else cancelCheckBtn.textContent = 'Cancel Check';
+                }
+            } else {
+                if (settingsProgressBarContainer) settingsProgressBarContainer.style.display = 'none';
+                if (cancelCheckBtn) {
+                    cancelCheckBtn.style.display = 'none';
+                }
+                if (res.lastCheckAt && res.lastCheckResults) {
+                    settingsStatusText.textContent = `Last checked: ${formatDate(res.lastCheckAt)}`;
+                    settingsLastSummary.textContent = `${res.lastCheckResults.valid} valid, ${res.lastCheckResults.invalid} invalid${res.lastCheckCount ? ` — ${res.lastCheckCount}` : ''}`;
+                } else {
+                    settingsStatusText.textContent = 'Last check data is unavailable.';
+                    settingsLastSummary.textContent = '';
+                }
+            }
+
+            renderInvalidAccountsSection(res.discordAccounts || accounts);
+        });
+    }
+
+    function renderInvalidAccountsSection(allAccounts) {
+        const container = document.getElementById('invalidAccountsListContainer');
+        if (!container) return;
+
+        const invalidAccs = allAccounts.filter(acc => acc && acc.invalid);
+        if (invalidAccs.length === 0) {
+            container.style.display = 'none';
+            container.innerHTML = '';
+            return;
+        }
+
+        container.style.display = 'flex';
+        container.innerHTML = `
+            <div class="invalid-section-header">
+                <span class="invalid-section-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"></path>
+                    </svg>
+                    Invalid Accounts (${invalidAccs.length})
+                </span>
+                <button id="deleteAllInvalidBtn" class="btn-danger-subtle">
+                    Delete All (${invalidAccs.length})
+                </button>
+            </div>
+            <div class="invalid-accounts-list">
+                ${invalidAccs.map(acc => {
+                    const avatarUrl = acc.avatar
+                        ? `https://cdn.discordapp.com/avatars/${acc.id}/${acc.avatar}.png?size=64`
+                        : (acc.id ? `https://cdn.discordapp.com/embed/avatars/${(BigInt(acc.id) >> 22n) % 6n}.png` : 'https://cdn.discordapp.com/embed/avatars/0.png');
+                    return `
+                        <div class="invalid-account-item">
+                            <img src="${avatarUrl}" class="invalid-acc-avatar" alt="Avatar">
+                            <div class="invalid-acc-info">
+                                <div class="invalid-acc-name">${acc.global_name || acc.username || 'Unknown User'}</div>
+                                <div class="invalid-acc-sub">Token Expired / Invalid</div>
+                            </div>
+                            <button class="icon-btn-sm delete-invalid-single-btn" title="Delete account" data-token="${acc.token}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+
+        const deleteAllBtn = container.querySelector('#deleteAllInvalidBtn');
+        if (deleteAllBtn) {
+            deleteAllBtn.addEventListener('click', () => {
+                accounts = accounts.filter(acc => !acc.invalid);
+                chrome.storage.local.set({ discordAccounts: accounts }, () => {
+                    renderAccounts();
+                    loadSettingsStatus();
+                });
+            });
+        }
+
+        container.querySelectorAll('.delete-invalid-single-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tokenToDelete = btn.dataset.token;
+                accounts = accounts.filter(acc => acc.token !== tokenToDelete);
+                chrome.storage.local.set({ discordAccounts: accounts }, () => {
+                    renderAccounts();
+                    loadSettingsStatus();
+                });
+            });
+        });
+    }
+
+    function formatDate(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
     }
 
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -1148,12 +1736,84 @@ document.addEventListener('DOMContentLoaded', async () => {
                     updateProgressUI(res.isChecking, res.checkProgress || 0, res.checkTarget, res.checkCount, res.checkResults);
                 });
             }
+            if (changes.lastCheckAt || changes.lastCheckResults || changes.checkCount || changes.cancelCheck) {
+                loadSettingsStatus();
+            }
             if (changes.discordAccounts) {
                 accounts = changes.discordAccounts.newValue || [];
                 renderAccounts();
             }
         }
     });
+
+    // Backup & Data Actions
+    const exportJsonBtn = document.getElementById('exportJsonBtn');
+    const exportTxtBtn = document.getElementById('exportTxtBtn');
+    const copyTokensBtn = document.getElementById('copyTokensBtn');
+    const copyTokensBtnTitle = document.getElementById('copyTokensBtnTitle');
+    const backupMessage = document.getElementById('backupMessage');
+
+    function showBackupMessage(msg, type = 'success') {
+        if (!backupMessage) return;
+        backupMessage.textContent = msg;
+        backupMessage.className = `backup-status-banner ${type}`;
+        backupMessage.style.display = 'flex';
+        setTimeout(() => {
+            if (backupMessage) backupMessage.style.display = 'none';
+        }, 4000);
+    }
+
+    if (exportJsonBtn) {
+        exportJsonBtn.addEventListener('click', () => {
+            const dataStr = JSON.stringify({
+                version: "2.1.2",
+                exportedAt: new Date().toISOString(),
+                accounts: accounts,
+                folders: folders
+            }, null, 2);
+            downloadFile(dataStr, 'discord_accounts_backup.json', 'application/json');
+            showBackupMessage('JSON backup downloaded!', 'success');
+        });
+    }
+
+    if (exportTxtBtn) {
+        exportTxtBtn.addEventListener('click', () => {
+            const tokensList = accounts.map(a => a.token).filter(Boolean).join('\n');
+            downloadFile(tokensList, 'discord_tokens.txt', 'text/plain');
+            showBackupMessage('Tokens TXT list downloaded!', 'success');
+        });
+    }
+
+    if (copyTokensBtn) {
+        copyTokensBtn.addEventListener('click', () => {
+            const tokensList = accounts.map(a => a.token).filter(Boolean).join('\n');
+            if (!tokensList) {
+                showBackupMessage('No accounts to copy.', 'error');
+                return;
+            }
+            navigator.clipboard.writeText(tokensList).then(() => {
+                showBackupMessage(`${accounts.length} token(s) copied to clipboard!`, 'success');
+                if (copyTokensBtnTitle) {
+                    const originalText = copyTokensBtnTitle.textContent;
+                    copyTokensBtnTitle.textContent = 'Copied! ✔';
+                    setTimeout(() => {
+                        copyTokensBtnTitle.textContent = originalText;
+                    }, 2500);
+                }
+            }).catch(() => {
+                showBackupMessage('Failed to copy tokens.', 'error');
+            });
+        });
+    }
+
+    function downloadFile(content, fileName, contentType) {
+        const a = document.createElement('a');
+        const file = new Blob([content], { type: contentType });
+        a.href = URL.createObjectURL(file);
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
 
     loadInitialData();
 });

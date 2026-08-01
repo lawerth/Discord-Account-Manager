@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Discord Account Manager",
-    "version": "1.0.1",
+    "version": "2.1.2",
     "description": "Easily manage and switch between Discord accounts using tokens.",
     "permissions": [
         "storage",

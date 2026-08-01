@@ -1,4 +1,5 @@
 let checkAbortController = null;
+let isCheckRunning = false;
 
 // Reset any orphaned or stuck check states on extension load
 chrome.storage.local.set({
@@ -23,6 +24,7 @@ async function stopCheck() {
         checkAbortController.abort();
         checkAbortController = null;
     }
+    isCheckRunning = false;
     await chrome.storage.local.set({
         isChecking: false,
         cancelCheck: false,
@@ -129,118 +131,127 @@ async function validateToken(token, externalSignal) {
 }
 
 async function startCheck() {
-    const { discordAccounts, isChecking } = await chrome.storage.local.get(['discordAccounts', 'isChecking']);
-
-    if (isChecking) {
-        console.log('Check already in progress.');
+    if (isCheckRunning) {
+        console.log('Check process is already active. Ignoring duplicate call.');
         return;
     }
+
+    const { discordAccounts } = await chrome.storage.local.get(['discordAccounts']);
 
     if (!discordAccounts || discordAccounts.length === 0) {
         await chrome.storage.local.set({ isChecking: false, checkProgress: 0 });
         return;
     }
 
+    isCheckRunning = true;
     const accounts = [...discordAccounts];
     checkAbortController = new AbortController();
-    await chrome.storage.local.set({
-        isChecking: true,
-        cancelCheck: false,
-        checkProgress: 0,
-        checkTarget: 'Starting...',
-        checkCount: `0/${accounts.length}`,
-        checkResults: { valid: 0, invalid: 0 }
-    });
 
-    let hasChanges = false;
-    let validCount = 0;
-    let invalidCount = 0;
+    try {
+        await chrome.storage.local.set({
+            isChecking: true,
+            cancelCheck: false,
+            checkProgress: 0,
+            checkTarget: 'Starting...',
+            checkCount: `0/${accounts.length}`,
+            checkResults: { valid: 0, invalid: 0 }
+        });
 
-    for (let i = 0; i < accounts.length; i++) {
-        const acc = accounts[i];
-        const targetName = acc.global_name || acc.username || `Account #${i + 1}`;
-        const currentCount = `${i + 1}/${accounts.length}`;
+        let hasChanges = false;
+        let validCount = 0;
+        let invalidCount = 0;
 
-        const { cancelCheck: preCancel } = await chrome.storage.local.get(['cancelCheck']);
-        if (preCancel || (checkAbortController && checkAbortController.signal.aborted)) {
-            await stopCheck();
-            return;
+        for (let i = 0; i < accounts.length; i++) {
+            const acc = accounts[i];
+            const targetName = acc.global_name || acc.username || `Account #${i + 1}`;
+            const currentCount = `${i + 1}/${accounts.length}`;
+            const currentProg = Math.round(((i + 1) / accounts.length) * 100);
+
+            const { cancelCheck: preCancel } = await chrome.storage.local.get(['cancelCheck']);
+            if (preCancel || (checkAbortController && checkAbortController.signal.aborted)) {
+                await stopCheck();
+                return;
+            }
+
+            // Atomic status update before validating token
+            await chrome.storage.local.set({
+                checkTarget: targetName,
+                checkCount: currentCount,
+                checkProgress: currentProg,
+                checkResults: { valid: validCount, invalid: invalidCount }
+            });
+
+            const result = await validateToken(acc.token, checkAbortController ? checkAbortController.signal : null);
+            
+            if (result.error === 'aborted') {
+                await stopCheck();
+                return;
+            }
+
+            if (result.error === 'ratelimit') {
+                await new Promise(r => setTimeout(r, 1500));
+            }
+
+            const isInvalid = !result.valid && result.error === 'unauthorized';
+            const userData = result.data;
+
+            if (isInvalid) {
+                invalidCount++;
+                if (accounts[i].invalid !== true) {
+                    accounts[i] = { ...accounts[i], invalid: true };
+                    hasChanges = true;
+                }
+            } else if (result.valid) {
+                validCount++;
+                if (accounts[i].invalid !== false ||
+                    accounts[i].username !== userData.username ||
+                    accounts[i].global_name !== userData.global_name ||
+                    accounts[i].avatar !== userData.avatar) {
+
+                    accounts[i] = {
+                        ...accounts[i],
+                        invalid: false,
+                        username: userData.username,
+                        global_name: userData.global_name,
+                        avatar: userData.avatar
+                    };
+                    hasChanges = true;
+                }
+            }
+
+            // Update results atomically after check
+            await chrome.storage.local.set({
+                checkResults: { valid: validCount, invalid: invalidCount }
+            });
+
+            const { cancelCheck: postCancel } = await chrome.storage.local.get(['cancelCheck']);
+            if (postCancel) {
+                await stopCheck();
+                return;
+            }
+
+            await new Promise(r => setTimeout(r, 150));
+        }
+
+        if (hasChanges) {
+            await chrome.storage.local.set({ discordAccounts: accounts });
         }
 
         await chrome.storage.local.set({
-            checkTarget: targetName,
-            checkCount: currentCount
+            isChecking: false,
+            checkProgress: 100,
+            checkResults: { valid: validCount, invalid: invalidCount },
+            lastCheckAt: Date.now(),
+            lastCheckResults: { valid: validCount, invalid: invalidCount },
+            lastCheckCount: `${accounts.length} total`,
+            cancelCheck: false
         });
 
-        const result = await validateToken(acc.token, checkAbortController ? checkAbortController.signal : null);
-        
-        if (result.error === 'aborted') {
-            await stopCheck();
-            return;
-        }
-
-        if (result.error === 'ratelimit') {
-            await new Promise(r => setTimeout(r, 1500));
-        }
-
-        const isInvalid = !result.valid && result.error === 'unauthorized';
-        const userData = result.data;
-
-        if (isInvalid) {
-            invalidCount++;
-            if (accounts[i].invalid !== true) {
-                accounts[i] = { ...accounts[i], invalid: true };
-                hasChanges = true;
-            }
-        } else if (result.valid) {
-            validCount++;
-            if (accounts[i].invalid !== false ||
-                accounts[i].username !== userData.username ||
-                accounts[i].global_name !== userData.global_name ||
-                accounts[i].avatar !== userData.avatar) {
-
-                accounts[i] = {
-                    ...accounts[i],
-                    invalid: false,
-                    username: userData.username,
-                    global_name: userData.global_name,
-                    avatar: userData.avatar
-                };
-                hasChanges = true;
-            }
-        }
-
-        const prog = Math.round(((i + 1) / accounts.length) * 100);
-        await chrome.storage.local.set({
-            checkProgress: prog,
-            checkResults: { valid: validCount, invalid: invalidCount }
-        });
-
-        const { cancelCheck: postCancel } = await chrome.storage.local.get(['cancelCheck']);
-        if (postCancel) {
-            await stopCheck();
-            return;
-        }
-
-        await new Promise(r => setTimeout(r, 150));
+        setTimeout(() => {
+            chrome.storage.local.set({ checkProgress: 0 });
+        }, 3000);
+    } finally {
+        isCheckRunning = false;
+        checkAbortController = null;
     }
-
-    if (hasChanges) {
-        await chrome.storage.local.set({ discordAccounts: accounts });
-    }
-
-    await chrome.storage.local.set({
-        isChecking: false,
-        checkProgress: 100,
-        checkResults: { valid: validCount, invalid: invalidCount },
-        lastCheckAt: Date.now(),
-        lastCheckResults: { valid: validCount, invalid: invalidCount },
-        lastCheckCount: `${accounts.length} total`,
-        cancelCheck: false
-    });
-    checkAbortController = null;
-
-    setTimeout(() => {
-        chrome.storage.local.set({ checkProgress: 0 });
-    }, 3000);
 }

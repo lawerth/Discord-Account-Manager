@@ -233,7 +233,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function loadInitialData() {
         return new Promise((resolve) => {
-            chrome.storage.local.get(['discordAccounts', 'discordFolders', 'collapsedFolders', 'selectedTheme'], async function (result) {
+            chrome.storage.local.get(['discordAccounts', 'discordFolders', 'collapsedFolders', 'selectedTheme', 'selectedLanguage'], async function (result) {
+                let activeLang = result.selectedLanguage;
+                if (!activeLang) {
+                    activeLang = detectSystemLanguage();
+                    chrome.storage.local.set({ selectedLanguage: activeLang });
+                }
+                setLanguage(activeLang);
+                if (window.updateCustomLangSelect) {
+                    window.updateCustomLangSelect(activeLang);
+                }
+
                 if (result.selectedTheme) {
                     currentThemeIndex = Math.max(0, themes.indexOf(result.selectedTheme));
                     applyTheme(result.selectedTheme);
@@ -329,17 +339,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const options = container.querySelectorAll('.custom-option');
         const nativeSelect = document.getElementById('themeSelect');
 
-        const themeLabels = {
-            'discord-dark': 'Discord Dark',
-            'amoled': 'AMOLED',
-            'light': 'Light'
-        };
-
         function updateTrigger(themeValue) {
             const badge = trigger.querySelector('.theme-badge-dot');
             const text = trigger.querySelector('.custom-select-text');
             if (badge) badge.className = `theme-badge-dot ${themeValue}`;
-            if (text) text.textContent = themeLabels[themeValue] || themeValue;
+            const keyMap = {
+                'discord-dark': 'theme.discordDark',
+                'amoled': 'theme.amoled',
+                'light': 'theme.light'
+            };
+            if (text) text.textContent = getTranslation(keyMap[themeValue] || themeValue);
 
             options.forEach(opt => {
                 if (opt.dataset.value === themeValue) {
@@ -554,16 +563,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const draggedElement = draggingElement;
-        const rect = draggedElement.getBoundingClientRect();
 
         const cleanup = () => {
             draggedElement.classList.remove('dragging');
-            // Clear any lingering transitions and transforms
+            draggedElement.style.opacity = '';
+            draggedElement.style.transform = '';
+            draggedElement.style.transition = '';
+
+            // Add spring bounce drop-settle animation to the dropped element
+            draggedElement.classList.add('drop-settle');
+            setTimeout(() => {
+                draggedElement.classList.remove('drop-settle');
+            }, 300);
+
             const allItems = listContainer.querySelectorAll('.account-item, .folder-container');
             allItems.forEach(item => {
                 item.style.transition = '';
                 item.style.transform = '';
             });
+
             draggingElement = null;
             draggingType = null;
             dragStarted = false;
@@ -574,11 +592,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
 
         if (dragProxy) {
-            dragProxy.style.transition = 'all 0.2s cubic-bezier(0.2, 0, 0, 1)';
+            const rect = draggedElement.getBoundingClientRect();
+            dragProxy.style.transition = 'all 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.15)';
             dragProxy.style.left = rect.left + 'px';
             dragProxy.style.top = rect.top + 'px';
             dragProxy.style.transform = 'scale(1)';
-            dragProxy.style.opacity = '0.7';
+            dragProxy.style.opacity = '1';
+            dragProxy.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
 
             setTimeout(() => {
                 if (dragProxy) {
@@ -586,12 +606,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     dragProxy = null;
                 }
                 cleanup();
-                saveOrderFromDOM();
+                saveOrderFromDOM(false);
                 setTimeout(() => { ignoreFolderClick = false; }, 50);
-            }, 200);
+            }, 220);
         } else {
             cleanup();
-            saveOrderFromDOM();
+            saveOrderFromDOM(false);
             setTimeout(() => { ignoreFolderClick = false; }, 50);
         }
     }
@@ -843,7 +863,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         ${count > 0 ? `<span class="folder-count">${count}</span>` : ''}
                     </div>
                     <div class="folder-actions${folder.menuOpen ? ' open' : ''}">
-                        <button class="icon-btn folder-menu-btn" title="Folder options">
+                        <button class="icon-btn folder-menu-btn" title="${getTranslation('folder.options')}">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                 <circle cx="5" cy="12" r="1.5"></circle>
                                 <circle cx="12" cy="12" r="1.5"></circle>
@@ -852,7 +872,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         </button>
                         <div class="folder-menu${folder.menuOpen ? ' open' : ''}">
                             <div class="folder-menu-edit">
-                                <input type="text" class="folder-name-input" value="${folder.name}" autofocus placeholder="Folder Name">
+                                <input type="text" class="folder-name-input" value="${folder.name}" autofocus placeholder="${getTranslation('folder.renamePlaceholder')}">
                                 <div class="color-palette">
                                     <div class="color-option default ${!folder.color ? 'active' : ''}" data-color="" title="Default"></div>
                                     <div class="color-option blue ${folder.color === 'blue' ? 'active' : ''}" data-color="blue" title="Blue"></div>
@@ -862,8 +882,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                                     <div class="color-option purple ${folder.color === 'purple' ? 'active' : ''}" data-color="purple" title="Purple"></div>
                                 </div>
                                 <div class="folder-menu-actions">
-                                    <button class="btn save-folder-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>Save</button>
-                                    <button class="btn delete-folder-panel-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3.999V2H9V3.999H3V5.999H21V3.999H15Z"></path><path d="M5 6.99902V18.999C5 20.101 5.897 20.999 7 20.999H17C18.103 20.999 19 20.101 19 18.999V6.99902H5ZM11 17H9V11H11V17ZM15 17H13V11H15V17Z"></path></svg>Delete</button>
+                                    <button class="btn save-folder-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>${getTranslation('folder.save')}</button>
+                                    <button class="btn delete-folder-panel-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3.999V2H9V3.999H3V5.999H21V3.999H15Z"></path><path d="M5 6.99902V18.999C5 20.101 5.897 20.999 7 20.999H17C18.103 20.999 19 20.101 19 18.999V6.99902H5ZM11 17H9V11H11V17ZM15 17H13V11H15V17Z"></path></svg>${getTranslation('folder.delete')}</button>
                                 </div>
                             </div>
                         </div>
@@ -1012,7 +1032,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (folderAccounts.length === 0) {
                 const emptyMsg = document.createElement('div');
                 emptyMsg.className = 'folder-empty-msg';
-                emptyMsg.textContent = 'No accounts in this folder';
+                emptyMsg.textContent = getTranslation('folder.empty');
                 folderContent.appendChild(emptyMsg);
             } else {
                 folderAccounts.forEach((acc) => {
@@ -1029,7 +1049,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (uncategorizedAccounts.length > 0 && folders.length > 0) {
             const label = document.createElement('div');
             label.className = 'uncategorized-label';
-            label.textContent = 'Uncategorized';
+            label.textContent = getTranslation('uncategorized');
             listContainer.appendChild(label);
         }
 
@@ -1040,7 +1060,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         if (filteredAccounts.length === 0 && visibleFolders.length === 0 && searchQuery.trim() !== '') {
-            listContainer.innerHTML = '<div class="empty-state">No matching accounts found.</div>';
+            listContainer.innerHTML = `<div class="empty-state">${getTranslation('search.noResults')}</div>`;
         }
 
         if (listContainer) {
@@ -1069,7 +1089,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             : `https://cdn.discordapp.com/embed/avatars/${(BigInt(acc.id) >> 22n) % 6n}.png`;
 
         item.innerHTML = `
-            <div class="drag-handle" title="Drag to reorder">
+            <div class="drag-handle" title="${getTranslation('actions.dragReorder')}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M4 11H20V13H4V11ZM4 6H20V8H4V6ZM4 16H20V18H4V16Z"></path>
                 </svg>
@@ -1081,19 +1101,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
             <div class="actions-group">
                 ${acc.invalid ? `
-                    <div class="invalid-warning" title="Token Invalid">
+                    <div class="invalid-warning" title="${getTranslation('settings.tokenExpired')}">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"></path>
                         </svg>
                     </div>
                 ` : ''}
-                <button class="icon-btn copy-btn" title="Copy Token">
+                <button class="icon-btn copy-btn" title="${getTranslation('account.copyToken')}">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
-                <button class="icon-btn delete-btn" title="Remove Account" data-index="${index}">
+                <button class="icon-btn delete-btn" title="${getTranslation('account.delete')}" data-index="${index}">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M15 3.999V2H9V3.999H3V5.999H21V3.999H15Z"></path>
                         <path d="M5 6.99902V18.999C5 20.101 5.897 20.999 7 20.999H17C18.103 20.999 19 20.101 19 18.999V6.99902H5ZM11 17H9V11H11V17ZM15 17H13V11H15V17Z"></path>
@@ -1246,9 +1266,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (accounts.length === 0 && folders.length === 0) return;
 
         const confirmed = await showConfirmDialog(
-            'Delete All Accounts?',
-            'Are you sure you want to delete all accounts and folders? This action cannot be undone.',
-            'Delete All'
+            getTranslation('confirm.title'),
+            getTranslation('confirm.msg'),
+            getTranslation('confirm.delete')
         );
 
         if (confirmed) {
@@ -1416,7 +1436,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    async function saveOrderFromDOM() {
+    async function saveOrderFromDOM(shouldRender = false) {
         const folderEls = Array.from(listContainer.querySelectorAll('.folder-container'));
         const newFoldersOrder = folderEls.map(el => {
             const folderId = el.dataset.id;
@@ -1455,7 +1475,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             chrome.storage.local.set({ discordFolders: folders.map(({ isEditing, menuOpen, ...rest }) => rest) })
         ]);
 
-        renderAccounts();
+        if (shouldRender) {
+            renderAccounts();
+        }
     }
 
     function switchAccount(token, accId) {
@@ -1535,10 +1557,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 settingsProgressBarContainer.style.display = 'block';
             }
             if (settingsStatusText) {
-                settingsStatusText.textContent = 'Checking...';
+                settingsStatusText.textContent = getTranslation('settings.checking');
             }
             if (settingsLastSummary) {
-                settingsLastSummary.textContent = 'Current check in progress...';
+                settingsLastSummary.textContent = getTranslation('settings.checking');
             }
             if (cancelCheckBtn) {
                 cancelCheckBtn.style.display = 'flex';
@@ -1565,33 +1587,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function updateProgressUI(isChecking, progress, target, count, results) {
         if (!checkAllTokensBtn || !settingsProgressBarContainer || !settingsProgressBar) return;
+        const settingsStatusContainer = document.getElementById('settingsStatusContainer');
 
         if (isChecking) {
+            if (settingsStatusContainer) settingsStatusContainer.style.display = 'none';
             checkAllTokensBtn.classList.add('loading');
-            checkAllTokensBtn.title = 'Check in progress...';
+            checkAllTokensBtn.title = getTranslation('settings.checking');
             settingsProgressBarContainer.style.display = 'block';
             settingsProgressBar.style.width = progress + '%';
-            if (settingsProgressText) settingsProgressText.textContent = target ? `Checking: ${target}` : 'Checking...';
+            if (settingsProgressText) settingsProgressText.textContent = target ? `${getTranslation('settings.checking')} ${target}` : getTranslation('settings.checking');
             if (settingsProgressCount) settingsProgressCount.textContent = count || '0/0';
             if (cancelCheckBtn) {
                 cancelCheckBtn.style.display = 'flex';
                 cancelCheckBtn.disabled = false;
                 const span = cancelCheckBtn.querySelector('span');
-                if (span) span.textContent = 'Cancel Check';
-                else cancelCheckBtn.textContent = 'Cancel Check';
+                if (span) span.textContent = getTranslation('settings.cancelCheck');
+                else cancelCheckBtn.textContent = getTranslation('settings.cancelCheck');
             }
         } else {
+            if (settingsStatusContainer) settingsStatusContainer.style.display = 'block';
             checkAllTokensBtn.classList.remove('loading');
-            checkAllTokensBtn.title = 'Check All Tokens';
+            checkAllTokensBtn.title = getTranslation('settings.checkAll');
             if (cancelCheckBtn) {
                 cancelCheckBtn.style.display = 'none';
             }
             if (progress >= 100) {
                 if (settingsProgressText) {
                     if (results) {
-                        settingsProgressText.textContent = `Completed: ${results.valid} Valid, ${results.invalid} Invalid`;
+                        settingsProgressText.textContent = `${getTranslation('settings.completed')}: ${results.valid} ${getTranslation('settings.valid')}, ${results.invalid} ${getTranslation('settings.invalid')}`;
                     } else {
-                        settingsProgressText.textContent = 'Check Completed';
+                        settingsProgressText.textContent = getTranslation('settings.completed');
                     }
                 }
                 if (settingsProgressCount) settingsProgressCount.textContent = count || '';
@@ -1609,6 +1634,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function loadSettingsStatus() {
         if (!settingsStatusText || !settingsLastSummary) return;
+        const settingsStatusContainer = document.getElementById('settingsStatusContainer');
 
         chrome.storage.local.get(['lastCheckAt', 'lastCheckResults', 'checkCount', 'isChecking', 'checkProgress', 'checkTarget', 'cancelCheck', 'discordAccounts'], (res) => {
             if (res.cancelCheck) {
@@ -1617,29 +1643,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             if (res.isChecking) {
-                settingsStatusText.textContent = res.checkTarget ? `Checking: ${res.checkTarget}` : 'Checking...';
+                if (settingsStatusContainer) settingsStatusContainer.style.display = 'none';
                 if (settingsProgressBarContainer) settingsProgressBarContainer.style.display = 'block';
                 if (settingsProgressBar) settingsProgressBar.style.width = (res.checkProgress || 0) + '%';
-                if (settingsProgressText) settingsProgressText.textContent = res.checkTarget ? `Checking: ${res.checkTarget}` : 'Checking...';
+                if (settingsProgressText) settingsProgressText.textContent = res.checkTarget ? `${getTranslation('settings.checking')} ${res.checkTarget}` : getTranslation('settings.checking');
                 if (settingsProgressCount) settingsProgressCount.textContent = res.checkCount || '0/0';
-                settingsLastSummary.textContent = 'Current check in progress...';
                 if (cancelCheckBtn) {
                     cancelCheckBtn.style.display = 'flex';
                     cancelCheckBtn.disabled = false;
                     const span = cancelCheckBtn.querySelector('span');
-                    if (span) span.textContent = 'Cancel Check';
-                    else cancelCheckBtn.textContent = 'Cancel Check';
+                    if (span) span.textContent = getTranslation('settings.cancelCheck');
+                    else cancelCheckBtn.textContent = getTranslation('settings.cancelCheck');
                 }
             } else {
+                if (settingsStatusContainer) settingsStatusContainer.style.display = 'block';
                 if (settingsProgressBarContainer) settingsProgressBarContainer.style.display = 'none';
                 if (cancelCheckBtn) {
                     cancelCheckBtn.style.display = 'none';
                 }
                 if (res.lastCheckAt && res.lastCheckResults) {
-                    settingsStatusText.textContent = `Last checked: ${formatDate(res.lastCheckAt)}`;
-                    settingsLastSummary.textContent = `${res.lastCheckResults.valid} valid, ${res.lastCheckResults.invalid} invalid${res.lastCheckCount ? ` — ${res.lastCheckCount}` : ''}`;
+                    settingsStatusText.textContent = `${getTranslation('settings.lastChecked')} ${formatDate(res.lastCheckAt)}`;
+                    settingsLastSummary.textContent = `${res.lastCheckResults.valid} ${getTranslation('settings.valid')}, ${res.lastCheckResults.invalid} ${getTranslation('settings.invalid')}${res.lastCheckCount ? ` — ${res.lastCheckCount}` : ''}`;
                 } else {
-                    settingsStatusText.textContent = 'Last check data is unavailable.';
+                    settingsStatusText.textContent = getTranslation('settings.lastCheckUnavailable');
                     settingsLastSummary.textContent = '';
                 }
             }
@@ -1666,10 +1692,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"></path>
                     </svg>
-                    Invalid Accounts (${invalidAccs.length})
+                    ${getTranslation('settings.invalidAccounts')} (${invalidAccs.length})
                 </span>
                 <button id="deleteAllInvalidBtn" class="btn-danger-subtle">
-                    Delete All (${invalidAccs.length})
+                    ${getTranslation('settings.deleteAllInvalid')} (${invalidAccs.length})
                 </button>
             </div>
             <div class="invalid-accounts-list">
@@ -1682,9 +1708,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <img src="${avatarUrl}" class="invalid-acc-avatar" alt="Avatar">
                             <div class="invalid-acc-info">
                                 <div class="invalid-acc-name">${acc.global_name || acc.username || 'Unknown User'}</div>
-                                <div class="invalid-acc-sub">Token Expired / Invalid</div>
+                                <div class="invalid-acc-sub">${getTranslation('settings.tokenExpired')}</div>
                             </div>
-                            <button class="icon-btn-sm delete-invalid-single-btn" title="Delete account" data-token="${acc.token}">
+                            <button class="icon-btn-sm delete-invalid-single-btn" title="${getTranslation('account.delete')}" data-token="${acc.token}">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"></path>
                                 </svg>
@@ -1766,7 +1792,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (exportJsonBtn) {
         exportJsonBtn.addEventListener('click', () => {
             const dataStr = JSON.stringify({
-                version: "2.1.2",
+                version: "2.2.0",
                 exportedAt: new Date().toISOString(),
                 accounts: accounts,
                 folders: folders
@@ -1813,6 +1839,73 @@ document.addEventListener('DOMContentLoaded', async () => {
         a.download = fileName;
         a.click();
         URL.revokeObjectURL(a.href);
+    }
+
+    // Custom Language Select Logic
+    const langSelect = document.getElementById('langSelect');
+    const customLangSelect = document.getElementById('customLangSelect');
+
+    const langMap = {
+        'en': { name: 'English', flagSvg: '<svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><path fill="#bd3d44" d="M0 0h640v480H0z"/><path fill="#fff" d="M0 36.9h640v36.9H0zm0 73.8h640v36.9H0zm0 73.9h640v36.9H0zm0 73.8h640v36.9H0zm0 73.9h640v36.9H0zm0 73.8h640v36.9H0z"/><path fill="#192f5d" d="M0 0h280v258.5H0z"/></svg>' },
+        'tr': { name: 'Türkçe', flagSvg: '<svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="480" fill="#E30A17"/><circle cx="230" cy="240" r="140" fill="#ffffff"/><circle cx="265" cy="240" r="112" fill="#E30A17"/><path d="M342.3 216.7l15.6 48-40.8-29.6-40.8 29.6 15.6-48-40.8-29.7h50.4l15.6-48 15.6 48h50.4z" fill="#ffffff"/></svg>' },
+        'de': { name: 'Deutsch', flagSvg: '<svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="160" y="0" fill="#000000"/><rect width="640" height="160" y="160" fill="#DD0000"/><rect width="640" height="160" y="320" fill="#FFCC00"/></svg>' },
+        'es': { name: 'Español', flagSvg: '<svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="120" y="0" fill="#AA151B"/><rect width="640" height="240" y="120" fill="#F1BF00"/><rect width="640" height="120" y="360" fill="#AA151B"/></svg>' },
+        'fr': { name: 'Français', flagSvg: '<svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="213.3" height="480" x="0" fill="#002395"/><rect width="213.3" height="480" x="213.3" fill="#ffffff"/><rect width="213.3" height="480" x="426.6" fill="#ED2939"/></svg>' },
+        'pt': { name: 'Português', flagSvg: '<svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="256" height="480" fill="#046A38"/><rect width="384" height="480" x="256" fill="#DA291C"/><circle cx="256" cy="240" r="90" fill="#FFC72C"/><circle cx="256" cy="240" r="75" fill="#DA291C"/></svg>' },
+        'ru': { name: 'Русский', flagSvg: '<svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="160" y="0" fill="#ffffff"/><rect width="640" height="160" y="160" fill="#0039A6"/><rect width="640" height="160" y="320" fill="#D52B1E"/></svg>' }
+    };
+
+    window.updateCustomLangSelect = function(langValue) {
+        if (!customLangSelect) return;
+        const triggerText = customLangSelect.querySelector('.custom-select-text');
+        const triggerFlag = customLangSelect.querySelector('.lang-flag');
+        const options = customLangSelect.querySelectorAll('.custom-option');
+
+        const langData = langMap[langValue] || langMap['en'];
+        if (triggerText) triggerText.textContent = langData.name;
+        if (triggerFlag) triggerFlag.innerHTML = langData.flagSvg;
+
+        options.forEach(opt => {
+            if (opt.dataset.value === langValue) {
+                opt.classList.add('selected');
+            } else {
+                opt.classList.remove('selected');
+            }
+        });
+    };
+
+    if (customLangSelect) {
+        const trigger = customLangSelect.querySelector('.custom-select-trigger');
+        const options = customLangSelect.querySelectorAll('.custom-option');
+
+        if (trigger) {
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const themeContainer = document.getElementById('customThemeSelect');
+                if (themeContainer) themeContainer.classList.remove('open');
+                customLangSelect.classList.toggle('open');
+            });
+
+            options.forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const val = opt.dataset.value;
+                    if (langSelect) langSelect.value = val;
+                    window.updateCustomLangSelect(val);
+                    setLanguage(val);
+                    chrome.storage.local.set({ selectedLanguage: val });
+                    customLangSelect.classList.remove('open');
+                    renderAccounts();
+                    loadSettingsStatus();
+                });
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!customLangSelect.contains(e.target)) {
+                    customLangSelect.classList.remove('open');
+                }
+            });
+        }
     }
 
     loadInitialData();

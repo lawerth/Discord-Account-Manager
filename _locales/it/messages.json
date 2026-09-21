@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Account Manager per Discord",
+        "description": "Il nome dell'estensione"
+    },
+    "appDesc": {
+        "message": "Cambia, organizza e gestisci facilmente più account Discord utilizzando i token.",
+        "description": "La descrizione dell'estensione"
+    }
+}

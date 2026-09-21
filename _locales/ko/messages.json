@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Discord 계정 관리자",
+        "description": "확장 프로그램의 이름"
+    },
+    "appDesc": {
+        "message": "토큰을 사용하여 여러 Discord 계정을 쉽게 전환하고 구성 및 관리하세요.",
+        "description": "확장 프로그램 설명"
+    }
+}

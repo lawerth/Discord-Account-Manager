@@ -11,14 +11,14 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2><span data-i18n="nav.title">Accounts</span> <span id="accountCount" class="account-count"></span></h2>
+            <h2><span data-i18n="nav.title"></span> <span id="accountCount" class="account-count"></span></h2>
             <div class="header-actions">
-                <button id="settingsBtn" class="icon-btn" data-i18n-title="settings.title" title="Settings">
+                <button id="settingsBtn" class="icon-btn" data-i18n-title="settings.title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 00.12-.65l-1.92-3.32a.5.5 0 00-.61-.22l-2.39.96a7.027 7.027 0 00-1.63-.94l-.36-2.54A.5.5 0 0014.5 2h-5a.5.5 0 00-.5.43l-.36 2.54c-.58.22-1.12.52-1.63.94l-2.39-.96a.5.5 0 00-.61.22L2.71 8.87a.5.5 0 00.12.65l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.83 14.5a.5.5 0 00-.12.65l1.92 3.32c.14.24.43.34.69.22l2.39-.96c.51.42 1.05.72 1.63.94l.36 2.54c.05.28.28.43.5.43h5c.22 0 .45-.15.5-.43l.36-2.54c.58-.22 1.12-.52 1.63-.94l2.39.96c.26.11.55.02.69-.22l1.92-3.32a.5.5 0 00-.12-.65l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z"></path>
                     </svg>
                 </button>
-                <button id="addFolderBtn" class="icon-btn" title="Create Folder">
+                <button id="addFolderBtn" class="icon-btn" data-i18n-title="folder.newFolder">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                         <path
                             d="M20 6H12L10 4H4C2.89 4 2.01 4.89 2.01 6L2 18C2 19.11 2.89 20 4 20H20C21.11 20 22 19.11 22 18V8C22 6.89 21.11 6 20 6ZM20 18H4V8H20V18ZM19 13H15V17H13V13H9V11H13V7H15V11H19V13Z">
@@ -30,7 +30,7 @@
 
         <div id="progressBarContainer" class="progress-bar-container" style="display: none;">
             <div class="progress-info">
-                <span id="progressText" class="progress-text" data-i18n="settings.checking">Checking...</span>
+                <span id="progressText" class="progress-text" data-i18n="settings.checking"></span>
                 <span id="progressCount" class="progress-count">0/0</span>
             </div>
             <div id="progressBar" class="progress-bar"></div>
@@ -41,8 +41,8 @@
                 <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M21.707 20.293L16.056 14.642C17.263 13.111 18 11.141 18 9C18 4.037 13.963 0 9 0C4.037 0 0 4.037 0 9C0 13.963 4.037 18 9 18C11.141 18 13.111 17.263 14.642 16.056L20.293 21.707C20.488 21.902 20.744 22 21 22C21.256 22 21.512 21.902 21.707 21.707C22.098 21.316 22.098 20.684 21.707 20.293ZM9 16C5.14 16 2 12.86 2 9C2 5.14 5.14 2 9 2C12.86 2 16 5.14 16 9C16 12.86 12.86 16 9 16Z"></path>
                 </svg>
-                <input type="text" id="searchInput" data-i18n-placeholder="search.placeholder" placeholder="Search accounts...">
-                <button id="clearSearchBtn" class="clear-search-btn" title="Clear Search">
+                <input type="text" id="searchInput" data-i18n-placeholder="search.placeholder">
+                <button id="clearSearchBtn" class="clear-search-btn" data-i18n-title="search.clear">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M18.41 5.41L17 4L12 9L7 4L5.59 5.41L10.59 10.41L5.59 15.41L7 16.82L12 11.82L17 16.82L18.41 15.41L13.41 10.41L18.41 5.41Z"></path>
                     </svg>
@@ -54,18 +54,62 @@
         </div>
 
         <div class="add-token-form" id="addTokenForm" style="display: none;">
-            <input type="password" id="tokenInput" data-i18n-placeholder="addToken.placeholder" placeholder="Paste Discord token here...">
+            <div class="add-token-header">
+                <div class="add-token-title-row">
+                    <span class="add-token-title" data-i18n="actions.addToken"></span>
+                    <span id="detectedTokensBadge" class="detected-tokens-badge" style="display: none;"></span>
+                </div>
+                <label class="btn-upload-txt" data-i18n-title="addToken.importTxtTitle">
+                    <input type="file" id="importTxtFile" accept=".txt" style="display: none;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/>
+                    </svg>
+                    <span data-i18n="addToken.importTxt"></span>
+                </label>
+            </div>
+
+            <textarea id="tokenInput" rows="3" data-i18n-placeholder="addToken.multiPlaceholder"></textarea>
+
+            <div class="token-folder-row" id="tokenFolderRow">
+                <label class="token-folder-label" data-i18n="addToken.targetFolder"></label>
+                <div class="custom-select-container token-folder-custom-select" id="customTokenFolderSelect">
+                    <button class="custom-select-trigger token-folder-trigger" type="button" id="tokenFolderTrigger">
+                        <svg class="folder-select-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                        </svg>
+                        <span class="custom-select-text" id="tokenFolderTriggerText" data-i18n="addToken.noFolder"></span>
+                        <svg class="custom-select-arrow" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7 10l5 5 5-5z"/>
+                        </svg>
+                    </button>
+                    <div class="token-folder-options" id="tokenFolderOptions"></div>
+                    <select id="tokenFolderSelect" style="display: none;">
+                        <option value="" data-i18n="addToken.noFolder"></option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="addTokenProgressContainer" class="add-token-progress-container" style="display: none;">
+                <div class="progress-info">
+                    <span id="addTokenProgressText" class="progress-text"></span>
+                    <span id="addTokenProgressCount" class="progress-count"></span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div id="addTokenProgressBar" class="progress-bar"></div>
+                </div>
+            </div>
+
             <div class="form-actions">
-                <button class="btn btn-cancel" id="cancelAddBtn" data-i18n="addToken.cancel">Cancel</button>
-                <button class="btn btn-primary" id="saveTokenBtn" data-i18n="addToken.save">Save</button>
+                <button class="btn btn-cancel" id="cancelAddBtn" data-i18n="addToken.cancel"></button>
+                <button class="btn btn-primary" id="saveTokenBtn" data-i18n="addToken.save"></button>
             </div>
             <div class="error-msg" id="errorMsg"></div>
         </div>
 
         <div class="footer-actions" id="footerActions">
-            <button class="btn btn-primary" id="addCurrentAccountBtn" disabled title="Open a Discord tab to use this feature" data-i18n="actions.addCurrent">Add Current</button>
-            <button class="btn btn-primary" id="showAddBtn" data-i18n="actions.addToken">Add Token</button>
-            <button class="btn btn-danger" id="deleteAllBtn" data-i18n-title="actions.deleteAll" title="Delete All Accounts">
+            <button class="btn btn-primary" id="addCurrentAccountBtn" disabled data-i18n-title="actions.addCurrentTooltip" data-i18n="actions.addCurrent"></button>
+            <button class="btn btn-primary" id="showAddBtn" data-i18n="actions.addToken"></button>
+            <button class="btn btn-danger" id="deleteAllBtn" data-i18n-title="actions.deleteAll">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M15 3.999V2H9V3.999H3V5.999H21V3.999H15Z"></path>
                     <path
@@ -78,40 +122,40 @@
 
     <div id="settingsModal" class="settings-page" style="display: none;">
         <div class="settings-header">
-            <button id="closeSettingsBtn" class="icon-btn back-btn" data-i18n-title="nav.back" title="Back to Accounts">
+            <button id="closeSettingsBtn" class="icon-btn back-btn" data-i18n-title="nav.back">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path>
                 </svg>
             </button>
             <div class="settings-title">
-                <h2 data-i18n="settings.title">Settings</h2>
+                <h2 data-i18n="settings.title"></h2>
             </div>
             <div class="header-spacer" style="width: 32px;"></div>
         </div>
         <div class="settings-content">
             <div class="settings-card">
                 <div class="settings-card-header">
-                    <span class="settings-card-title" data-i18n="settings.tokenHealth">Token Health</span>
+                    <span class="settings-card-title" data-i18n="settings.tokenHealth"></span>
                 </div>
                 <button id="checkAllTokensBtn" class="settings-action-btn" style="display: none;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                     </svg>
-                    <span data-i18n="settings.checkAll">Check All Tokens</span>
+                    <span data-i18n="settings.checkAll"></span>
                 </button>
                 <button id="cancelCheckBtn" class="settings-action-btn settings-cancel-btn" style="display: none;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>
                     </svg>
-                    <span data-i18n="settings.cancelCheck">Cancel Check</span>
+                    <span data-i18n="settings.cancelCheck"></span>
                 </button>
                 <div id="settingsStatusContainer" class="settings-status-container">
-                    <div id="settingsStatusText" class="settings-status-text" data-i18n="settings.lastCheckUnavailable">Last check data is unavailable.</div>
+                    <div id="settingsStatusText" class="settings-status-text" data-i18n="settings.lastCheckUnavailable"></div>
                     <div id="settingsLastSummary" class="settings-last-summary"></div>
                 </div>
                 <div id="settingsProgressBarContainer" class="progress-bar-container settings-progress" style="display: none;">
                     <div class="progress-info">
-                        <span id="settingsProgressText" class="progress-text" data-i18n="settings.checking">Checking...</span>
+                        <span id="settingsProgressText" class="progress-text" data-i18n="settings.checking"></span>
                         <span id="settingsProgressCount" class="progress-count">0/0</span>
                     </div>
                     <div id="settingsProgressBar" class="progress-bar"></div>
@@ -122,13 +166,13 @@
             <div class="settings-card">
                 <div class="settings-action-item">
                     <div class="settings-label-group">
-                        <label for="themeSelect" class="settings-label" data-i18n="settings.appearanceTheme">Appearance Theme</label>
-                        <span class="settings-sublabel" data-i18n="settings.themeSub">Choose background style</span>
+                        <label for="themeSelect" class="settings-label" data-i18n="settings.appearanceTheme"></label>
+                        <span class="settings-sublabel" data-i18n="settings.themeSub"></span>
                     </div>
                     <div class="custom-select-container" id="customThemeSelect">
                         <button class="custom-select-trigger" type="button">
                             <span class="theme-badge-dot discord-dark"></span>
-                            <span class="custom-select-text" data-i18n="theme.discordDark">Discord Dark</span>
+                            <span class="custom-select-text" data-i18n="theme.discordDark"></span>
                             <svg class="custom-select-arrow" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M7 10l5 5 5-5z"/>
                             </svg>
@@ -136,21 +180,63 @@
                         <div class="custom-select-options">
                             <div class="custom-option selected" data-value="discord-dark">
                                 <span class="theme-badge-dot discord-dark"></span>
-                                <span class="option-label" data-i18n="theme.discordDark">Discord Dark</span>
+                                <span class="option-label" data-i18n="theme.discordDark"></span>
                                 <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
                                 </svg>
                             </div>
                             <div class="custom-option" data-value="amoled">
                                 <span class="theme-badge-dot amoled"></span>
-                                <span class="option-label" data-i18n="theme.amoled">AMOLED</span>
+                                <span class="option-label" data-i18n="theme.amoled"></span>
                                 <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
                                 </svg>
                             </div>
                             <div class="custom-option" data-value="light">
                                 <span class="theme-badge-dot light"></span>
-                                <span class="option-label" data-i18n="theme.light">Light</span>
+                                <span class="option-label" data-i18n="theme.light"></span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="midnight-blurple">
+                                <span class="theme-badge-dot midnight-blurple"></span>
+                                <span class="option-label" data-i18n="theme.midnightBlurple"></span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="retro-storm">
+                                <span class="theme-badge-dot retro-storm"></span>
+                                <span class="option-label" data-i18n="theme.retroStorm"></span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="neon-nights">
+                                <span class="theme-badge-dot neon-nights"></span>
+                                <span class="option-label" data-i18n="theme.neonNights"></span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="sunset">
+                                <span class="theme-badge-dot sunset"></span>
+                                <span class="option-label" data-i18n="theme.sunset"></span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="mint-apple">
+                                <span class="theme-badge-dot mint-apple"></span>
+                                <span class="option-label" data-i18n="theme.mintApple"></span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="hanami">
+                                <span class="theme-badge-dot hanami"></span>
+                                <span class="option-label" data-i18n="theme.hanami"></span>
                                 <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
                                 </svg>
@@ -158,18 +244,37 @@
                         </div>
                     </div>
                     <select id="themeSelect" style="display: none;">
-                        <option value="discord-dark" data-i18n="theme.discordDark">Discord Dark</option>
-                        <option value="amoled" data-i18n="theme.amoled">AMOLED</option>
-                        <option value="light" data-i18n="theme.light">Light</option>
+                        <option value="discord-dark" data-i18n="theme.discordDark"></option>
+                        <option value="amoled" data-i18n="theme.amoled"></option>
+                        <option value="light" data-i18n="theme.light"></option>
+                        <option value="midnight-blurple" data-i18n="theme.midnightBlurple"></option>
+                        <option value="retro-storm" data-i18n="theme.retroStorm"></option>
+                        <option value="neon-nights" data-i18n="theme.neonNights"></option>
+                        <option value="sunset" data-i18n="theme.sunset"></option>
+                        <option value="mint-apple" data-i18n="theme.mintApple"></option>
+                        <option value="hanami" data-i18n="theme.hanami"></option>
                     </select>
+                </div>
+            </div>
+
+            <div class="settings-card">
+                <div class="settings-toggle-item">
+                    <div class="settings-label-group">
+                        <label for="showBadgesToggle" class="settings-label" data-i18n="settings.showBadges"></label>
+                        <span class="settings-sublabel" data-i18n="settings.showBadgesSub"></span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="showBadgesToggle" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
                 </div>
             </div>
 
             <div class="settings-card">
                 <div class="settings-action-item">
                     <div class="settings-label-group">
-                        <label for="langSelect" class="settings-label" data-i18n="settings.language">Language</label>
-                        <span class="settings-sublabel" data-i18n="settings.languageSub">Select interface language</span>
+                        <label for="langSelect" class="settings-label" data-i18n="settings.language"></label>
+                        <span class="settings-sublabel" data-i18n="settings.languageSub"></span>
                     </div>
                     <div class="custom-select-container" id="customLangSelect">
                         <button class="custom-select-trigger" type="button">
@@ -229,6 +334,48 @@
                                     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
                                 </svg>
                             </div>
+                            <div class="custom-option" data-value="it">
+                                <span class="lang-flag"><svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="213.3" height="480" fill="#009246"/><rect width="213.3" height="480" x="213.3" fill="#ffffff"/><rect width="213.3" height="480" x="426.6" fill="#ce2b37"/></svg></span>
+                                <span class="option-label">Italiano</span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="ja">
+                                <span class="lang-flag"><svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="480" fill="#ffffff"/><circle cx="320" cy="240" r="144" fill="#bc002d"/></svg></span>
+                                <span class="option-label">日本語</span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="ko">
+                                <span class="lang-flag"><svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="480" fill="#ffffff"/><path fill="#cd2e3a" d="M320 120a120 120 0 01120 120c0 66.27-53.73 120-120 120a60 60 0 110-120 60 60 0 000-120z"/><path fill="#0047a0" d="M320 360a120 120 0 01-120-120c0-66.27 53.73-120 120-120a60 60 0 110 120 60 60 0 000 120z"/></svg></span>
+                                <span class="option-label">한국어</span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="pl">
+                                <span class="lang-flag"><svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="240" fill="#ffffff"/><rect width="640" height="240" y="240" fill="#dc143c"/></svg></span>
+                                <span class="option-label">Polski</span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="zh">
+                                <span class="lang-flag"><svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="480" fill="#de2910"/><path fill="#ffde00" d="M160 80l24.7 76h79.9l-64.6 47 24.7 76-64.7-47-64.7 47 24.7-76-64.6-47h79.9z"/></svg></span>
+                                <span class="option-label">简体中文</span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
+                            <div class="custom-option" data-value="uk">
+                                <span class="lang-flag"><svg class="flag-icon" width="18" height="13" viewBox="0 0 640 480"><rect width="640" height="240" fill="#0057b7"/><rect width="640" height="240" y="240" fill="#ffd700"/></svg></span>
+                                <span class="option-label">Українська</span>
+                                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </div>
                         </div>
                     </div>
                     <select id="langSelect" style="display: none;">
@@ -239,46 +386,52 @@
                         <option value="fr">Français</option>
                         <option value="pt">Português</option>
                         <option value="ru">Русский</option>
+                        <option value="it">Italiano</option>
+                        <option value="ja">日本語</option>
+                        <option value="ko">한국어</option>
+                        <option value="pl">Polski</option>
+                        <option value="zh">简体中文</option>
+                        <option value="uk">Українська</option>
                     </select>
                 </div>
             </div>
 
             <div class="settings-card">
                 <div class="settings-card-header">
-                    <span class="settings-card-title" data-i18n="settings.exportBackup">Export & Backup</span>
+                    <span class="settings-card-title" data-i18n="settings.exportBackup"></span>
                 </div>
                 <div class="export-actions-grid">
-                    <button id="exportJsonBtn" class="export-card-btn" title="Export full JSON backup (accounts & folders)">
+                    <button id="exportJsonBtn" class="export-card-btn" data-i18n-title="settings.exportJsonSub">
                         <div class="export-btn-icon json-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                             </svg>
                         </div>
                         <div class="export-btn-text">
-                            <span class="export-btn-title" data-i18n="settings.exportJson">Export JSON</span>
-                            <span class="export-btn-sub" data-i18n="settings.exportJsonSub">Full Backup (Accounts & Folders)</span>
+                            <span class="export-btn-title" data-i18n="settings.exportJson"></span>
+                            <span class="export-btn-sub" data-i18n="settings.exportJsonSub"></span>
                         </div>
                     </button>
-                    <button id="exportTxtBtn" class="export-card-btn" title="Export tokens list as TXT file">
+                    <button id="exportTxtBtn" class="export-card-btn" data-i18n-title="settings.exportTxtSub">
                         <div class="export-btn-icon txt-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
                             </svg>
                         </div>
                         <div class="export-btn-text">
-                            <span class="export-btn-title" data-i18n="settings.exportTxt">Export TXT</span>
-                            <span class="export-btn-sub" data-i18n="settings.exportTxtSub">Tokens Only (.txt file)</span>
+                            <span class="export-btn-title" data-i18n="settings.exportTxt"></span>
+                            <span class="export-btn-sub" data-i18n="settings.exportTxtSub"></span>
                         </div>
                     </button>
-                    <button id="copyTokensBtn" class="export-card-btn" title="Copy all tokens to clipboard">
+                    <button id="copyTokensBtn" class="export-card-btn" data-i18n-title="settings.copyTokensSub">
                         <div class="export-btn-icon copy-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
                             </svg>
                         </div>
                         <div class="export-btn-text">
-                            <span class="export-btn-title" id="copyTokensBtnTitle" data-i18n="settings.copyTokens">Copy Tokens</span>
-                            <span class="export-btn-sub" data-i18n="settings.copyTokensSub">Copy all tokens to clipboard</span>
+                            <span class="export-btn-title" id="copyTokensBtnTitle" data-i18n="settings.copyTokens"></span>
+                            <span class="export-btn-sub" data-i18n="settings.copyTokensSub"></span>
                         </div>
                     </button>
                 </div>
@@ -287,7 +440,7 @@
 
             <div class="settings-card">
                 <div class="settings-card-header">
-                    <span class="settings-card-title" data-i18n="settings.communitySupport">Community & Support</span>
+                    <span class="settings-card-title" data-i18n="settings.communitySupport"></span>
                 </div>
                 <div class="settings-links-grid">
                     <a href="https://github.com/lawerth/Discord-Account-Manager" target="_blank" class="settings-link-btn" title="GitHub Repository">
@@ -302,22 +455,22 @@
                         </svg>
                         <span>Discord</span>
                     </a>
-                    <a href="https://chromewebstore.google.com/detail/daibnnodfmdiodinihdmelconnbfgefo?utm_source=item-share-cb" target="_blank" class="settings-link-btn" title="Rate on Web Store">
+                    <a href="https://chromewebstore.google.com/detail/daibnnodfmdiodinihdmelconnbfgefo?utm_source=item-share-cb" target="_blank" class="settings-link-btn" data-i18n-title="support.rateApp">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
                         </svg>
-                        <span data-i18n="support.rateApp">Rate App</span>
+                        <span data-i18n="support.rateApp"></span>
                     </a>
-                    <a href="https://github.com/lawerth/Discord-Account-Manager/issues" target="_blank" class="settings-link-btn" title="Report Bug / Request Feature">
+                    <a href="https://github.com/lawerth/Discord-Account-Manager/issues" target="_blank" class="settings-link-btn" data-i18n-title="support.reportBug">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M20 8h-2.81c-.45-.78-1.07-1.45-1.82-1.96L17 4.41 15.59 3l-2.17 2.17C12.96 5.06 12.49 5 12 5c-.49 0-.96.06-1.41.17L8.41 3 7 4.41l1.62 1.63C7.88 6.55 7.26 7.22 6.81 8H4v2h2.09c-.05.33-.09.66-.09 1v1H4v2h2v1c0 .34.04.67.09 1H4v2h2.81c1.04 1.79 2.97 3 5.19 3s4.15-1.21 5.19-3H20v-2h-2.09c.05-.33.09-.66.09-1v-1h2v-2h-2v-1c0-.34-.04-.67-.09-1H20V8zm-6 8h-4v-2h4v2zm0-4h-4v-2h4v2z"/>
                         </svg>
-                        <span data-i18n="support.reportBug">Report Bug</span>
+                        <span data-i18n="support.reportBug"></span>
                     </a>
                 </div>
                 <div class="settings-version-footer">
                     <span>Discord Account Manager</span>
-                    <span class="version-pill">v2.2.0</span>
+                    <span class="version-pill">v2.3.0</span>
                 </div>
             </div>
         </div>
@@ -330,11 +483,229 @@
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
                 </svg>
             </div>
-            <h3 id="confirmModalTitle" class="confirm-modal-title" data-i18n="confirm.title">Delete All Accounts?</h3>
-            <p id="confirmModalMessage" class="confirm-modal-msg" data-i18n="confirm.msg">Are you sure you want to delete all accounts and folders? This action cannot be undone.</p>
+            <h3 id="confirmModalTitle" class="confirm-modal-title" data-i18n="confirm.title"></h3>
+            <p id="confirmModalMessage" class="confirm-modal-msg" data-i18n="confirm.msg"></p>
             <div class="confirm-modal-actions">
-                <button id="cancelConfirmBtn" class="btn-confirm-cancel" data-i18n="confirm.cancel">Cancel</button>
-                <button id="okConfirmBtn" class="btn-confirm-danger" data-i18n="confirm.delete">Delete All</button>
+                <button id="cancelConfirmBtn" class="btn-confirm-cancel" data-i18n="confirm.cancel"></button>
+                <button id="okConfirmBtn" class="btn-confirm-danger" data-i18n="confirm.delete"></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="updateTokenModal" class="confirm-modal-overlay" style="display: none;">
+        <div class="confirm-modal-card update-token-card">
+            <div class="confirm-icon-box warning" id="updateTokenIconBox">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
+                </svg>
+            </div>
+            <h3 class="confirm-modal-title" data-i18n="account.updateToken"></h3>
+            <div class="update-token-account-preview">
+                <img id="updateTokenAvatar" src="" class="update-token-avatar" alt="Avatar">
+                <span id="updateTokenAccountName" class="update-token-account-name"></span>
+            </div>
+            <div class="update-token-input-wrapper">
+                <textarea id="updateTokenInput" rows="3" class="update-token-textarea" data-i18n-placeholder="account.updateTokenPlaceholder"></textarea>
+            </div>
+            <div id="updateTokenError" class="update-token-error" style="display: none;"></div>
+            <div class="confirm-modal-actions">
+                <button id="cancelUpdateTokenBtn" class="btn-confirm-cancel" data-i18n="addToken.cancel"></button>
+                <button id="submitUpdateTokenBtn" class="btn-confirm-primary" data-i18n="account.updateToken"></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="accountDetailsModal" class="confirm-modal-overlay" style="display: none;">
+        <div class="confirm-modal-card account-details-card">
+            <div class="account-details-header">
+                <div class="account-details-title-row">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="account-details-title-icon">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                    </svg>
+                    <h3 class="account-details-modal-title" data-i18n="account.details"></h3>
+                </div>
+                <button id="closeAccountDetailsBtn" class="account-details-close-btn" data-i18n-title="actions.close">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="account-details-profile">
+                <div id="accountDetailsBanner" class="account-details-banner">
+                    <div id="accountDetailsBannerOverlay" class="account-details-banner-overlay">
+                        <div id="accountDetailsBannerBadge" class="account-details-banner-badge">
+                            <svg class="banner-badge-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z"/>
+                            </svg>
+                            <span id="accountDetailsBannerBadgeText" class="banner-badge-text" data-i18n="account.copyBannerUrl"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="account-details-profile-body">
+                    <div id="accountDetailsAvatarWrap" class="account-details-avatar-wrap" data-i18n-title="account.copyAvatarUrl">
+                        <img id="accountDetailsAvatar" src="" class="account-details-avatar" alt="Avatar">
+                        <div id="accountDetailsAvatarOverlay" class="account-details-avatar-overlay">
+                            <svg class="avatar-overlay-icon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z"/>
+                            </svg>
+                        </div>
+                        <img id="accountDetailsStatusIndicator" src="assets/status/offline.webp" class="account-details-status-icon" alt="Status" title="Offline">
+                    </div>
+                    <div class="account-details-profile-info">
+                        <div class="account-details-names">
+                            <span id="accountDetailsGlobalName" class="account-details-global-name"></span>
+                            <span id="accountDetailsUsername" class="account-details-username"></span>
+                        </div>
+                        <div id="accountDetailsBadges" class="account-details-badges"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="account-details-fields">
+                <div class="account-detail-field">
+                    <div class="account-detail-field-header">
+                        <span class="account-detail-field-label" data-i18n="account.tokenStatus"></span>
+                        <span id="accountDetailsTokenBadge" class="token-status-pill valid"></span>
+                    </div>
+                    <div class="account-detail-field-box">
+                        <span id="accountDetailsToken" class="account-detail-value token-value monospace masked">••••••••••••••••</span>
+                        <div class="account-detail-btn-group">
+                            <button id="toggleAccountTokenVisibilityBtn" class="account-detail-action-btn icon-only" data-i18n-title="account.showToken">
+                                <svg id="tokenEyeIcon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                                </svg>
+                            </button>
+                            <button id="copyAccountTokenBtn" class="account-detail-action-btn icon-only" data-i18n-title="account.copyToken">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="account-info-section">
+                    <div class="account-info-row">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.userId"></span>
+                        </div>
+                        <div class="account-info-right">
+                            <span id="accountDetailsId" class="account-info-value monospace"></span>
+                            <button id="copyAccountIdBtn" class="account-info-copy-btn" data-i18n-title="account.copyId">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="account-info-row">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.createdAt"></span>
+                        </div>
+                        <span id="accountDetailsCreatedDate" class="account-info-value"></span>
+                    </div>
+
+                    <div class="account-info-row" id="accountDetailsEmailRow">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.email"></span>
+                        </div>
+                        <div class="account-info-right">
+                            <span id="accountDetailsEmailVerified" class="account-info-verified-badge" style="display: none;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </span>
+                            <span id="accountDetailsEmail" class="account-info-value truncate"></span>
+                            <button id="copyAccountEmailBtn" class="account-info-copy-btn" data-i18n-title="account.copyEmail" style="display: none;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="account-info-row" id="accountDetailsPhoneRow">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.phone"></span>
+                        </div>
+                        <div class="account-info-right">
+                            <span id="accountDetailsPhone" class="account-info-value"></span>
+                            <button id="copyAccountPhoneBtn" class="account-info-copy-btn" data-i18n-title="account.copyPhone" style="display: none;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="account-info-row">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.mfa"></span>
+                        </div>
+                        <span id="accountDetailsMfa" class="account-info-pill disabled"></span>
+                    </div>
+
+                    <div class="account-info-row">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M9 2L2 9l10 13L22 9l-7-7H9zm7.3 6l-3.3 4.5V4h1.7l1.6 4zm-5.6-4v8.5L7.4 8l1.6-4h1.7z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.nitro"></span>
+                        </div>
+                        <span id="accountDetailsNitro" class="account-info-value"></span>
+                    </div>
+
+                    <div class="account-info-row" id="accountDetailsLocaleRow">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95a15.65 15.65 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.92 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.987 7.987 0 0 1 5.08 16zm2.95-8H5.08a7.987 7.987 0 0 1 3.95-3.56A15.65 15.65 0 0 0 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.locale"></span>
+                        </div>
+                        <div class="account-info-right">
+                            <span id="accountDetailsLocaleFlag" class="lang-flag" style="display: none;"></span>
+                            <span id="accountDetailsLocale" class="account-info-value"></span>
+                        </div>
+                    </div>
+
+                    <div id="accountDetailsFolderRow" class="account-info-row">
+                        <div class="account-info-left">
+                            <svg class="account-info-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                            </svg>
+                            <span class="account-info-label" data-i18n="account.folder"></span>
+                        </div>
+                        <div class="account-info-right">
+                            <div id="accountDetailsFolderWrap" class="account-details-folder-wrap">
+                                <button id="accountDetailsFolderBtn" class="account-details-folder-btn" type="button" data-i18n-title="account.folder">
+                                    <span id="accountDetailsFolderDot" class="folder-dot"></span>
+                                    <span id="accountDetailsFolderName" class="account-details-folder-name"></span>
+                                    <svg class="folder-select-arrow" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                                    </svg>
+                                </button>
+                                <div id="accountDetailsFolderDropdown" class="account-details-folder-dropdown" style="display: none;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

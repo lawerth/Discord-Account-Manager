@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Discord 账号管理器",
+        "description": "扩展名称"
+    },
+    "appDesc": {
+        "message": "使用 Token 轻松切换、整理和管理多个 Discord 账号。",
+        "description": "扩展描述"
+    }
+}

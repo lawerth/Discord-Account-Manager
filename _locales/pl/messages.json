@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Menedżer Kont dla Discorda",
+        "description": "Nazwa rozszerzenia"
+    },
+    "appDesc": {
+        "message": "Łatwo przełączaj, organizuj i zarządzaj wieloma kontami Discord za pomocą tokenów.",
+        "description": "Opis rozszerzenia"
+    }
+}

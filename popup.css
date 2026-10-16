@@ -760,8 +760,29 @@ body {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.account-item:active {
+.account-item:active:not(:has(.actions-group:active)):not(:has(.account-badges:active)):not(:has(.drag-handle:active)):not(:has(.account-menu-wrapper.open)) {
     transform: translateY(0);
+}
+
+.account-item:hover:has(.actions-group:active),
+.account-item:hover:has(.account-menu-wrapper:active),
+.account-item:hover:has(.account-menu-wrapper.open),
+.account-item:hover:has(.account-badges:active),
+.account-item:hover:has(.drag-handle:active),
+.account-item:has(.account-menu-wrapper.open):active {
+    transform: translateY(-2px) !important;
+}
+
+.account-item.active-account {
+    border-left: 3px solid #5865F2;
+    background-color: rgba(88, 101, 242, 0.06);
+    box-shadow: inset 3px 0 8px -3px rgba(88, 101, 242, 0.3);
+    padding-left: 9px;
+}
+
+.account-item.active-account:hover {
+    background-color: rgba(88, 101, 242, 0.1);
+    box-shadow: inset 3px 0 8px -3px rgba(88, 101, 242, 0.3), 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .account-avatar {
@@ -2464,6 +2485,12 @@ input[type="password"]:focus {
     background: var(--bg-modifier-hover);
 }
 
+.account-menu-item:active {
+    background: var(--bg-modifier-active, rgba(255, 255, 255, 0.08));
+    transform: scale(0.98);
+}
+
+
 .account-menu-item svg {
     flex-shrink: 0;
     color: var(--text-muted);
@@ -2652,21 +2679,6 @@ input[type="password"]:focus {
     font-size: 13px;
 }
 
-.account-item.dragging,
-.folder-container.dragging {
-    opacity: 0;
-    pointer-events: none;
-}
-
-.drag-proxy {
-    position: fixed;
-    pointer-events: none;
-    z-index: 99999;
-    opacity: 1 !important;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 0 2px var(--brand-experiment);
-    transition: none;
-    filter: brightness(1.1);
-}
 
 .drag-handle {
     display: flex;
@@ -2725,11 +2737,6 @@ input[type="password"]:focus {
     overflow: visible;
     transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.2s, border-color 0.2s;
     flex-shrink: 0;
-}
-
-.folder-container.dragging {
-    opacity: 0;
-    pointer-events: none;
 }
 
 .folder-header {
@@ -3109,41 +3116,61 @@ input[type="password"]:focus {
     flex-shrink: 0;
 }
 
+body.dragging-active,
+body.dragging-active * {
+    cursor: grabbing !important;
+}
+
+body.dragging-active .account-item:hover {
+    background-color: var(--bg-secondary) !important;
+    border-color: var(--border-subtle) !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+body.dragging-active .folder-container:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+body.dragging-active .folder-header:hover {
+    background-color: transparent !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+body.dragging-active .folder-header:hover .folder-actions:not(.open) {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+body.dragging-active .account-item *,
+body.dragging-active .folder-header * {
+    pointer-events: none !important;
+}
+
+
 .drag-proxy {
     position: fixed;
     pointer-events: none;
     z-index: 99999;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88, 101, 242, 0.5);
     border-radius: 10px;
-    transform: scale(1.03);
-    will-change: left, top, transform, opacity;
+    will-change: transform, opacity;
+    left: 0;
+    top: 0;
+    margin: 0;
 }
 
 .account-item.dragging,
-.folder-container.dragging {
+.folder-container.dragging,
+.account-item.dragging *,
+.folder-container.dragging * {
     opacity: 0.25 !important;
     filter: grayscale(0.5);
+    pointer-events: none !important;
 }
 
-@keyframes dropSettle {
-    0% {
-        transform: scale(1.04);
-        box-shadow: 0 0 18px rgba(88, 101, 242, 0.45);
-    }
-    50% {
-        transform: scale(0.98);
-    }
-    100% {
-        transform: scale(1);
-        box-shadow: none;
-    }
-}
-
-.account-item.drop-settle,
-.folder-container.drop-settle {
-    animation: dropSettle 0.28s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    z-index: 10;
-}
 
 .account-details-card {
     max-width: 350px;
@@ -3267,39 +3294,27 @@ input[type="password"]:focus {
     opacity: 1;
 }
 
-.account-details-banner-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(0, 0, 0, 0.72);
+.banner-overlay-icon {
     color: #ffffff;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 5px 11px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-    transform: translateY(3px);
-    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-    letter-spacing: 0.2px;
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.6));
+    transform: scale(0.92);
+    transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s ease;
 }
 
-.account-details-banner.has-custom-banner:hover .account-details-banner-badge {
-    transform: translateY(0);
+.account-details-banner.has-custom-banner:hover .banner-overlay-icon {
+    transform: scale(1);
 }
 
 .account-details-banner.copied .account-details-banner-overlay {
     opacity: 1;
-    background: rgba(35, 165, 89, 0.35);
+    background: rgba(35, 165, 89, 0.4);
 }
 
-.account-details-banner.copied .account-details-banner-badge {
-    background: rgba(35, 165, 89, 0.9);
-    border-color: rgba(255, 255, 255, 0.4);
+.account-details-banner.copied .banner-overlay-icon {
     color: #ffffff;
-    box-shadow: 0 4px 16px rgba(35, 165, 89, 0.5);
-    transform: translateY(0);
+    transform: scale(1.15);
 }
+
 
 .account-details-profile-body {
     display: flex;

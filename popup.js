@@ -82,8 +82,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     let dragOffsetX = 0;
     let dragOffsetY = 0;
     let draggingHeight = 0;
+    let draggingWidth = 0;
     let searchQuery = '';
-    let scrollInterval = null;
+    let autoScrollRafId = null;
     let scrollDirection = 0;
     let scrollIntensity = 0;
     const SCROLL_ZONE = 40;
@@ -95,6 +96,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentFolderHover = null;
     let currentDragTarget = null;
     const DRAG_START_THRESHOLD = 5;
+    let dragRafId = null;
+    let latestPointerX = 0;
+    let latestPointerY = 0;
+    let lastReorderTime = 0;
 
     const themes = [
         'discord-dark',
@@ -113,7 +118,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.documentElement.setAttribute('data-theme', themeName);
     }
 
-    let activeToken = null;
+    let activeAccountId = null;
 
     async function checkActiveDiscordTab() {
         if (!addCurrentAccountBtn) return;
@@ -212,6 +217,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     if (tokenResult.startsWith("ERR:")) {
                         console.warn("Token Extraction Notice:", tokenResult);
+                        activeAccountId = null;
+                        markActiveAccount();
                         addCurrentAccountBtn.textContent = getTranslation('actions.notFound');
                         addCurrentAccountBtn.title = 'Debug logs: ' + tokenResult;
                         return;
@@ -219,8 +226,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     const token = tokenResult;
 
-                    const tokenExists = accounts.some(a => a.token === token);
-                    if (tokenExists) {
+                    const matchedAccount = accounts.find(a => a.token === token);
+                    if (matchedAccount) {
+                        activeAccountId = matchedAccount.id;
+                        markActiveAccount();
                         addCurrentAccountBtn.disabled = false;
                         addCurrentAccountBtn.textContent = getTranslation('actions.updateCurrent') || 'Update Current';
                         addCurrentAccountBtn.title = getTranslation('actions.updateCurrent') || 'Update Current';
@@ -268,6 +277,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         };
                     } else {
+                        activeAccountId = null;
+                        markActiveAccount();
                         addCurrentAccountBtn.disabled = false;
                         addCurrentAccountBtn.textContent = getTranslation('actions.addCurrent');
                         addCurrentAccountBtn.title = getTranslation('actions.addCurrent');
@@ -336,17 +347,36 @@ document.addEventListener('DOMContentLoaded', async () => {
                         };
                     }
                 } else {
+                    activeAccountId = null;
+                    markActiveAccount();
                     addCurrentAccountBtn.textContent = getTranslation('actions.noTokenFound');
                     addCurrentAccountBtn.title = getTranslation('actions.noTokenFound');
                 }
             } else {
+                activeAccountId = null;
+                markActiveAccount();
                 addCurrentAccountBtn.textContent = getTranslation('actions.addCurrent');
                 addCurrentAccountBtn.title = getTranslation('actions.addCurrent');
             }
         } catch (error) {
             console.error('Error checking active tab:', error);
+            activeAccountId = null;
+            markActiveAccount();
             addCurrentAccountBtn.textContent = getTranslation('actions.error');
             addCurrentAccountBtn.title = getTranslation('actions.error');
+        }
+    }
+
+    function markActiveAccount() {
+        document.querySelectorAll('.account-item.active-account').forEach(el => {
+            el.classList.remove('active-account');
+        });
+        if (activeAccountId) {
+            document.querySelectorAll('.account-item').forEach(el => {
+                if (el.dataset.accountId === activeAccountId) {
+                    el.classList.add('active-account');
+                }
+            });
         }
     }
 
@@ -740,16 +770,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             folderEl.classList.add('collapsed');
             const folderIcon = folderEl.querySelector('.folder-icon');
             if (folderIcon) {
-                folderIcon.style.transform = 'rotate(-90deg)';
+                folderIcon.style.transform = '';
             }
             const folderContent = folderEl.querySelector('.folder-content');
             if (folderContent) {
+                folderContent.style.transition = 'none';
                 folderContent.style.maxHeight = '0';
                 folderContent.style.paddingTop = '0';
                 folderContent.style.paddingBottom = '0';
                 folderContent.style.opacity = '0';
                 folderContent.style.pointerEvents = 'none';
             }
+        });
+        if (listContainer) listContainer.offsetHeight;
+        requestAnimationFrame(() => {
+            document.querySelectorAll('.folder-container .folder-content').forEach(fc => {
+                fc.style.transition = '';
+            });
         });
     }
 
@@ -774,49 +811,63 @@ document.addEventListener('DOMContentLoaded', async () => {
         dragPointerId = pointerId;
         dragStarted = true;
         currentDragTarget = null;
+        lastReorderTime = 0;
 
-        const rect = element.getBoundingClientRect();
+        const headerEl = type === 'folder' ? element.querySelector('.folder-header') : null;
+        const rect = (headerEl || element).getBoundingClientRect();
+        draggingWidth = rect.width;
         draggingHeight = rect.height;
         dragOffsetX = startX - rect.left;
         dragOffsetY = startY - rect.top;
+        latestPointerX = startX;
+        latestPointerY = startY;
 
         dragProxy = element.cloneNode(true);
         dragProxy.classList.add('drag-proxy');
         if (type === 'folder') {
             dragProxy.classList.add('collapsed');
-            const proxyFolderIcon = dragProxy.querySelector('.folder-icon');
-            if (proxyFolderIcon) {
-                proxyFolderIcon.style.transform = 'rotate(-90deg)';
-            }
             const proxyFolderContent = dragProxy.querySelector('.folder-content');
             if (proxyFolderContent) {
-                proxyFolderContent.style.maxHeight = '0';
-                proxyFolderContent.style.paddingTop = '0';
-                proxyFolderContent.style.paddingBottom = '0';
-                proxyFolderContent.style.opacity = '0';
-                proxyFolderContent.style.pointerEvents = 'none';
+                proxyFolderContent.remove();
             }
         }
         dragProxy.style.width = rect.width + 'px';
         dragProxy.style.height = rect.height + 'px';
-        dragProxy.style.left = `${startX - dragOffsetX}px`;
-        dragProxy.style.top = `${startY - dragOffsetY}px`;
+        dragProxy.style.position = 'fixed';
+        dragProxy.style.left = '0px';
+        dragProxy.style.top = '0px';
+        dragProxy.style.margin = '0';
+        const startPosX = startX - dragOffsetX;
+        const startPosY = startY - dragOffsetY;
+        dragProxy.style.transform = `translate3d(${startPosX}px, ${startPosY}px, 0) scale(1.03)`;
         dragProxy.style.transition = 'none';
         dragProxy.style.pointerEvents = 'none';
         dragProxy.setAttribute('aria-hidden', 'true');
         document.body.appendChild(dragProxy);
 
+        document.body.classList.add('dragging-active');
         document.body.style.userSelect = 'none';
         element.classList.add('dragging');
         movePointerDrag(startX, startY);
     }
 
     function finishPointerDrag() {
+        if (dragRafId) {
+            cancelAnimationFrame(dragRafId);
+            dragRafId = null;
+        }
         stopScroll();
+        document.body.classList.remove('dragging-active');
         document.body.style.userSelect = '';
         if (!draggingElement) {
             cancelPendingDrag();
             return;
+        }
+
+        if (pendingDrag && pendingDrag.element) {
+            try {
+                pendingDrag.element.releasePointerCapture(pendingDrag.pointerId);
+            } catch (err) { }
         }
 
         const draggedElement = draggingElement;
@@ -826,11 +877,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             draggedElement.style.opacity = '';
             draggedElement.style.transform = '';
             draggedElement.style.transition = '';
-
-            draggedElement.classList.add('drop-settle');
-            setTimeout(() => {
-                draggedElement.classList.remove('drop-settle');
-            }, 300);
 
             const allItems = listContainer.querySelectorAll('.account-item, .folder-container');
             allItems.forEach(item => {
@@ -848,15 +894,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
 
         if (dragProxy) {
-            const rect = draggedElement.getBoundingClientRect();
-            dragProxy.style.transition = 'all 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.15)';
-            dragProxy.style.left = rect.left + 'px';
-            dragProxy.style.top = rect.top + 'px';
-            dragProxy.style.transform = 'scale(1)';
-            dragProxy.style.opacity = '1';
-            dragProxy.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+            const currentRect = dragProxy.getBoundingClientRect();
+            const targetRect = draggedElement.getBoundingClientRect();
+            const dist = Math.hypot(targetRect.left - currentRect.left, targetRect.top - currentRect.top);
+            const duration = Math.min(200, Math.max(120, dist * 0.45));
 
-            setTimeout(() => {
+            dragProxy.style.transition = 'none';
+
+            const anim = dragProxy.animate([
+                {
+                    transform: `translate3d(${currentRect.left}px, ${currentRect.top}px, 0) scale(1.03)`,
+                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88, 101, 242, 0.5)',
+                    opacity: 1
+                },
+                {
+                    transform: `translate3d(${targetRect.left}px, ${targetRect.top}px, 0) scale(1)`,
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                    opacity: 1
+                }
+            ], {
+                duration: duration,
+                easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+                fill: 'forwards'
+            });
+
+            anim.onfinish = () => {
                 if (dragProxy) {
                     dragProxy.remove();
                     dragProxy = null;
@@ -864,7 +926,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 cleanup();
                 saveOrderFromDOM(false);
                 setTimeout(() => { ignoreFolderClick = false; }, 50);
-            }, 220);
+            };
         } else {
             cleanup();
             saveOrderFromDOM(false);
@@ -873,6 +935,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function cancelPendingDrag() {
+        if (dragRafId) {
+            cancelAnimationFrame(dragRafId);
+            dragRafId = null;
+        }
+        stopScroll();
+        document.body.classList.remove('dragging-active');
         document.body.style.userSelect = '';
         if (pendingDrag && pendingDrag.element) {
             try {
@@ -887,6 +955,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function updateFolderDragTarget(target, clientY) {
+        if (!target) return;
+        if (target === draggingElement || draggingElement.contains(target)) return;
+
         const folderTarget = target.closest('.folder-container');
         if (!folderTarget || folderTarget === draggingElement) return;
 
@@ -900,6 +971,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const alreadyAfter = folderTarget.nextElementSibling === draggingElement;
         if ((shouldInsertBefore && alreadyBefore) || (!shouldInsertBefore && alreadyAfter)) return;
 
+        const now = performance.now();
+        if (now - lastReorderTime < 50) return;
+        lastReorderTime = now;
+
         animateReorder(listContainer, () => {
             if (shouldInsertBefore) {
                 folderTarget.insertAdjacentElement('beforebegin', draggingElement);
@@ -910,6 +985,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function updateAccountDragTarget(target, clientY) {
+        if (!target) return;
+        if (target === draggingElement || draggingElement.contains(target)) return;
+
         const accountTarget = target.closest('.account-item');
         const folderTarget = target.closest('.folder-container');
 
@@ -927,6 +1005,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
 
+            const now = performance.now();
+            if (now - lastReorderTime < 50) return;
+            lastReorderTime = now;
+
             animateReorder(parent || listContainer, () => {
                 if (shouldInsertBefore) {
                     accountTarget.insertAdjacentElement('beforebegin', draggingElement);
@@ -938,12 +1020,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        if (folderTarget) {
+        if (folderTarget && folderTarget !== draggingElement) {
             const folderContent = folderTarget.querySelector('.folder-content');
             if (folderContent) {
                 if (folderContent.contains(draggingElement) && draggingElement.parentElement === folderContent) {
                     return;
                 }
+
+                const now = performance.now();
+                if (now - lastReorderTime < 50) return;
+                lastReorderTime = now;
 
                 const emptyMsg = folderContent.querySelector('.folder-empty-msg');
                 animateReorder(listContainer, () => {
@@ -957,9 +1043,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const listArea = target.closest('#accountList') || target.closest('.uncategorized-label');
         if (listArea) {
+            const topLevelChildren = Array.from(listContainer.children).filter(el =>
+                el !== draggingElement && (el.classList.contains('account-item') || el.classList.contains('folder-container'))
+            );
+            if (topLevelChildren.length > 0) {
+                const lastEl = topLevelChildren[topLevelChildren.length - 1];
+                const lastElRect = lastEl.getBoundingClientRect();
+                if (clientY < lastElRect.bottom) {
+                    return;
+                }
+            }
+
             if (draggingElement.parentElement === listContainer && listContainer.lastElementChild === draggingElement) {
                 return;
             }
+
+            const now = performance.now();
+            if (now - lastReorderTime < 50) return;
+            lastReorderTime = now;
+
             animateReorder(listContainer, () => {
                 listContainer.appendChild(draggingElement);
             });
@@ -982,20 +1084,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function movePointerDrag(clientX, clientY) {
+        latestPointerX = clientX;
+        latestPointerY = clientY;
+
         if (dragProxy) {
-            dragProxy.style.left = (clientX - dragOffsetX) + 'px';
-            dragProxy.style.top = (clientY - dragOffsetY) + 'px';
+            const posX = clientX - dragOffsetX;
+            const posY = clientY - dragOffsetY;
+            dragProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.03)`;
         }
 
         handleAutoScroll({ clientY });
 
-        if (dragProxy) {
-            const rect = dragProxy.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
-            updateDragTarget(centerX, centerY);
-        } else {
-            updateDragTarget(clientX, clientY);
+        if (!dragRafId) {
+            dragRafId = requestAnimationFrame(() => {
+                dragRafId = null;
+                if (!dragStarted) return;
+                const centerX = dragProxy ? (latestPointerX - dragOffsetX + draggingWidth / 2) : latestPointerX;
+                const centerY = dragProxy ? (latestPointerY - dragOffsetY + draggingHeight / 2) : latestPointerY;
+                updateDragTarget(centerX, centerY);
+            });
         }
     }
 
@@ -1016,6 +1123,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     function onPointerUp(e) {
         if (e.pointerId !== dragPointerId) return;
         if (dragStarted) {
+            if (dragRafId) {
+                cancelAnimationFrame(dragRafId);
+                dragRafId = null;
+            }
+            latestPointerX = e.clientX;
+            latestPointerY = e.clientY;
+            if (dragProxy) {
+                const posX = e.clientX - dragOffsetX;
+                const posY = e.clientY - dragOffsetY;
+                dragProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.03)`;
+                const centerX = posX + draggingWidth / 2;
+                const centerY = posY + draggingHeight / 2;
+                updateDragTarget(centerX, centerY);
+            }
             finishPointerDrag();
         } else {
             cancelPendingDrag();
@@ -1025,11 +1146,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     function onPointerCancel(e) {
         if (e.pointerId !== dragPointerId) return;
         if (dragStarted) {
+            if (dragRafId) {
+                cancelAnimationFrame(dragRafId);
+                dragRafId = null;
+            }
+            latestPointerX = e.clientX;
+            latestPointerY = e.clientY;
+            if (dragProxy) {
+                const posX = e.clientX - dragOffsetX;
+                const posY = e.clientY - dragOffsetY;
+                dragProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.03)`;
+                const centerX = posX + draggingWidth / 2;
+                const centerY = posY + draggingHeight / 2;
+                updateDragTarget(centerX, centerY);
+            }
             finishPointerDrag();
         } else {
             cancelPendingDrag();
         }
     }
+
 
     document.addEventListener('pointermove', onPointerMove);
     document.addEventListener('pointerup', onPointerUp);
@@ -1924,9 +2060,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function createAccountItem(acc, index) {
         const item = document.createElement('div');
-        item.className = 'account-item';
+        item.className = 'account-item' + (acc.id && acc.id === activeAccountId ? ' active-account' : '');
         item.dataset.index = index;
         item.dataset.token = acc.token;
+        item.dataset.accountId = acc.id || '';
 
         const avatarUrl = getAccountAvatarUrl(acc, 64);
 
@@ -2029,7 +2166,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
+        if (accountMenuWrapper) {
+            accountMenuWrapper.addEventListener('pointerdown', (e) => e.stopPropagation());
+            accountMenuWrapper.addEventListener('mousedown', (e) => e.stopPropagation());
+        }
+
         if (accountMenuBtn && accountMenu) {
+            accountMenuBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            accountMenuBtn.addEventListener('mousedown', (e) => e.stopPropagation());
             accountMenuBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 document.querySelectorAll('.account-menu-wrapper.open').forEach(el => {
@@ -2050,6 +2194,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
 
+            accountMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
+            accountMenu.addEventListener('mousedown', (e) => e.stopPropagation());
             accountMenu.addEventListener('click', (e) => {
                 e.stopPropagation();
             });
@@ -3248,14 +3394,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const bannerUrl = `https://cdn.discordapp.com/banners/${effectiveId}/${activeDetailsAccount.banner}.${ext}?size=1024`;
 
         const bannerEl = document.getElementById('accountDetailsBanner');
-        const badgeEl = document.getElementById('accountDetailsBannerBadge');
-        const badgeIconEl = badgeEl ? badgeEl.querySelector('.banner-badge-icon') : null;
-
-        const origSvgHtml = badgeIconEl ? badgeIconEl.outerHTML : '';
-        const origText = getTranslation('account.copyBannerUrl') || 'Copy Banner URL';
+        const overlay = document.getElementById('accountDetailsBannerOverlay');
+        const origOverlayHtml = overlay ? overlay.innerHTML : '';
         const origTitle = bannerEl ? bannerEl.title : '';
 
-        const checkmarkSvg = `<svg class="banner-badge-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        const checkmarkSvg = `<svg class="banner-overlay-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
         const copiedText = getTranslation('account.copied') || 'Copied!';
 
         const onSuccess = () => {
@@ -3263,8 +3406,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 bannerEl.classList.add('copied');
                 bannerEl.title = copiedText;
             }
-            if (badgeEl) {
-                badgeEl.innerHTML = `${checkmarkSvg}<span class="banner-badge-text">${copiedText}</span>`;
+            if (overlay) {
+                overlay.innerHTML = checkmarkSvg;
             }
 
             setTimeout(() => {
@@ -3272,8 +3415,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     bannerEl.classList.remove('copied');
                     bannerEl.title = getTranslation('account.copyBannerUrl') || origTitle;
                 }
-                if (badgeEl) {
-                    badgeEl.innerHTML = `${origSvgHtml}<span id="accountDetailsBannerBadgeText" class="banner-badge-text" data-i18n="account.copyBannerUrl">${origText}</span>`;
+                if (overlay) {
+                    overlay.innerHTML = origOverlayHtml;
                 }
             }, 1500);
         };
@@ -3782,6 +3925,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     function handleAutoScroll(e) {
+        if (!listContainer) return;
         const rect = listContainer.getBoundingClientRect();
         const topDist = e.clientY - rect.top;
         const bottomDist = rect.bottom - e.clientY;
@@ -3789,29 +3933,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (topDist < SCROLL_ZONE && topDist > 0) {
             scrollDirection = -1;
             scrollIntensity = (SCROLL_ZONE - topDist) / SCROLL_ZONE;
-            if (!scrollInterval) startScrollLoop();
+            startScrollLoop();
         } else if (bottomDist < SCROLL_ZONE && bottomDist > 0) {
             scrollDirection = 1;
             scrollIntensity = (SCROLL_ZONE - bottomDist) / SCROLL_ZONE;
-            if (!scrollInterval) startScrollLoop();
+            startScrollLoop();
         } else {
             stopScroll();
         }
     }
 
     function startScrollLoop() {
-        if (scrollInterval) return;
-        scrollInterval = setInterval(() => {
-            if (listContainer) {
-                listContainer.scrollTop += scrollDirection * (MAX_SCROLL_SPEED * scrollIntensity);
+        if (autoScrollRafId) return;
+        const scrollStep = () => {
+            if (!dragStarted || !listContainer) {
+                stopScroll();
+                return;
             }
-        }, 16);
+            listContainer.scrollTop += scrollDirection * (MAX_SCROLL_SPEED * scrollIntensity);
+            if (dragProxy) {
+                const centerX = latestPointerX - dragOffsetX + draggingWidth / 2;
+                const centerY = latestPointerY - dragOffsetY + draggingHeight / 2;
+                updateDragTarget(centerX, centerY);
+            }
+            autoScrollRafId = requestAnimationFrame(scrollStep);
+        };
+        autoScrollRafId = requestAnimationFrame(scrollStep);
     }
 
     function stopScroll() {
-        if (scrollInterval) {
-            clearInterval(scrollInterval);
-            scrollInterval = null;
+        if (autoScrollRafId) {
+            cancelAnimationFrame(autoScrollRafId);
+            autoScrollRafId = null;
         }
     }
 
@@ -3849,13 +4002,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         transforms.forEach(({ item, deltaX, deltaY }) => {
-            item.style.transition = 'none';
-            item.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
-            item.offsetHeight;
-            item.style.transition = 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)';
-            item.style.transform = '';
+            item.animate([
+                { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` },
+                { transform: 'translate3d(0px, 0px, 0)' }
+            ], {
+                duration: 180,
+                easing: 'cubic-bezier(0.2, 0, 0, 1)'
+            });
         });
     }
+
 
     async function saveOrderFromDOM(shouldRender = false) {
         if (searchQuery && searchQuery.trim() !== '') return;

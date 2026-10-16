@@ -76,30 +76,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     let accounts = [];
     let folders = [];
     let collapsedFolders = [];
-    let draggingElement = null;
-    let draggingType = null;
-    let dragProxy = null;
-    let dragOffsetX = 0;
-    let dragOffsetY = 0;
-    let draggingHeight = 0;
-    let draggingWidth = 0;
+    let rootOrder = [];
     let searchQuery = '';
-    let autoScrollRafId = null;
-    let scrollDirection = 0;
-    let scrollIntensity = 0;
-    const SCROLL_ZONE = 40;
-    const MAX_SCROLL_SPEED = 15;
-    let pendingDrag = null;
-    let dragPointerId = null;
-    let dragStarted = false;
-    let ignoreFolderClick = false;
-    let currentFolderHover = null;
-    let currentDragTarget = null;
-    const DRAG_START_THRESHOLD = 5;
-    let dragRafId = null;
-    let latestPointerX = 0;
-    let latestPointerY = 0;
-    let lastReorderTime = 0;
 
     const themes = [
         'discord-dark',
@@ -382,7 +360,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function loadInitialData() {
         return new Promise((resolve) => {
-            chrome.storage.local.get(['discordAccounts', 'discordFolders', 'collapsedFolders', 'selectedTheme', 'selectedLanguage', 'showBadges'], async function (result) {
+            chrome.storage.local.get(['discordAccounts', 'discordFolders', 'collapsedFolders', 'selectedTheme', 'selectedLanguage', 'showBadges', 'discordRootOrder'], async function (result) {
                 let activeLang = result.selectedLanguage;
                 if (!activeLang) {
                     activeLang = detectSystemLanguage();
@@ -412,6 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 accounts = result.discordAccounts || [];
                 folders = (result.discordFolders || []).map(({ isEditing, menuOpen, ...rest }) => rest);
                 collapsedFolders = folders.map(f => f.id);
+                rootOrder = result.discordRootOrder || [];
 
                 let hasChanges = false;
                 const folderIds = new Set(folders.map(f => f.id));
@@ -644,8 +623,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function saveAccounts(newAccounts) {
         return new Promise((resolve) => {
-            chrome.storage.local.set({ discordAccounts: newAccounts }, () => {
-                accounts = newAccounts;
+            accounts = newAccounts;
+            const clean = getCleanRootOrder();
+            chrome.storage.local.set({ discordAccounts: newAccounts, discordRootOrder: clean }, () => {
                 renderAccounts();
                 resolve();
             });
@@ -654,9 +634,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function saveFolders(newFolders) {
         return new Promise((resolve) => {
+            folders = newFolders;
+            const clean = getCleanRootOrder();
             const foldersToSave = newFolders.map(({ isEditing, menuOpen, ...rest }) => rest);
-            chrome.storage.local.set({ discordFolders: foldersToSave }, () => {
-                folders = newFolders;
+            chrome.storage.local.set({ discordFolders: foldersToSave, discordRootOrder: clean }, () => {
                 renderAccounts();
                 resolve();
             });
@@ -668,19 +649,206 @@ document.addEventListener('DOMContentLoaded', async () => {
         collapsedFolders = newCollapsed;
     }
 
-    function clearFolderHover() {
-        if (currentFolderHover) {
-            currentFolderHover.classList.remove('drag-over');
-            currentFolderHover = null;
+    function toggleFolderCollapse(folderContainer, folderId, forceState = null, immediate = false) {
+        if (!folderContainer) return;
+        const folderContent = folderContainer.querySelector('.folder-content');
+        const isCurrentlyCollapsed = folderContainer.classList.contains('collapsed') && !folderContainer.classList.contains('is-collapsing');
+        const targetCollapsed = forceState !== null ? forceState : !isCurrentlyCollapsed;
+
+        if (targetCollapsed === isCurrentlyCollapsed && !folderContainer._animating) {
+            return;
+        }
+
+        // Update state in storage
+        if (targetCollapsed) {
+            if (!collapsedFolders.includes(folderId)) {
+                saveCollapsedFolders([...collapsedFolders, folderId]);
+            }
+        } else {
+            if (collapsedFolders.includes(folderId)) {
+                saveCollapsedFolders(collapsedFolders.filter(fid => fid !== folderId));
+            }
+        }
+
+        if (immediate || !folderContent) {
+            if (folderContainer._animCleanup) {
+                folderContainer._animCleanup();
+            }
+            folderContainer.classList.remove('is-collapsing');
+            folderContainer.classList.toggle('collapsed', targetCollapsed);
+            if (folderContent) {
+                folderContent.style.display = '';
+                folderContent.style.height = '';
+                folderContent.style.opacity = '';
+                folderContent.style.overflow = '';
+                folderContent.style.transition = '';
+            }
+            return;
+        }
+
+        // Cancel any in-flight animation on this folder
+        if (folderContainer._animCleanup) {
+            folderContainer._animCleanup();
+        }
+
+        folderContainer._animating = true;
+
+        if (targetCollapsed) {
+            // Collapsing
+            const currentRect = folderContent.getBoundingClientRect();
+            const startHeight = currentRect.height > 0 ? currentRect.height : folderContent.scrollHeight;
+
+            folderContainer.classList.add('collapsed');
+            folderContainer.classList.add('is-collapsing');
+
+            folderContent.style.display = 'flex';
+            folderContent.style.overflow = 'hidden';
+            folderContent.style.height = `${startHeight}px`;
+            folderContent.style.opacity = '1';
+            folderContent.style.transition = 'none';
+
+            // Force reflow
+            void folderContent.offsetHeight;
+
+            folderContent.style.transition = 'height 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.16s ease';
+            folderContent.style.height = '0px';
+            folderContent.style.opacity = '0';
+
+            const finish = () => {
+                if (!folderContainer._animating) return;
+                folderContainer._animating = false;
+                folderContainer._animCleanup = null;
+                folderContent.removeEventListener('transitionend', onEnd);
+                clearTimeout(fallbackTimer);
+
+                folderContainer.classList.remove('is-collapsing');
+                folderContainer.classList.add('collapsed');
+
+                folderContent.style.display = '';
+                folderContent.style.height = '';
+                folderContent.style.opacity = '';
+                folderContent.style.overflow = '';
+                folderContent.style.transition = '';
+            };
+
+            const onEnd = (e) => {
+                if (e.target === folderContent && e.propertyName === 'height') {
+                    finish();
+                }
+            };
+
+            const fallbackTimer = setTimeout(finish, 240);
+            folderContent.addEventListener('transitionend', onEnd);
+            folderContainer._animCleanup = finish;
+        } else {
+            // Expanding
+            folderContainer.classList.remove('collapsed');
+            folderContainer.classList.remove('is-collapsing');
+
+            const currentRect = folderContent.getBoundingClientRect();
+            const currentHeight = currentRect.height > 0 ? currentRect.height : 0;
+
+            folderContent.style.display = 'flex';
+            folderContent.style.overflow = 'hidden';
+            folderContent.style.height = 'auto';
+            folderContent.style.opacity = '1';
+            folderContent.style.transition = 'none';
+
+            const targetHeight = folderContent.scrollHeight;
+
+            folderContent.style.height = `${currentHeight}px`;
+            folderContent.style.opacity = currentHeight > 0 ? '1' : '0';
+
+            // Force reflow
+            void folderContent.offsetHeight;
+
+            folderContent.style.transition = 'height 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease';
+            folderContent.style.height = `${targetHeight}px`;
+            folderContent.style.opacity = '1';
+
+            const finish = () => {
+                if (!folderContainer._animating) return;
+                folderContainer._animating = false;
+                folderContainer._animCleanup = null;
+                folderContent.removeEventListener('transitionend', onEnd);
+                clearTimeout(fallbackTimer);
+
+                folderContent.style.display = '';
+                folderContent.style.height = '';
+                folderContent.style.opacity = '';
+                folderContent.style.overflow = '';
+                folderContent.style.transition = '';
+            };
+
+            const onEnd = (e) => {
+                if (e.target === folderContent && e.propertyName === 'height') {
+                    finish();
+                }
+            };
+
+            const fallbackTimer = setTimeout(finish, 260);
+            folderContent.addEventListener('transitionend', onEnd);
+            folderContainer._animCleanup = finish;
         }
     }
 
-    function updateFolderHover(folderContainer) {
-        if (currentFolderHover === folderContainer) return;
-        clearFolderHover();
-        currentFolderHover = folderContainer;
-        currentFolderHover.classList.add('drag-over');
+    function collapseAllFolders(immediate = false) {
+        const allFolderIds = folders.map(folder => folder.id);
+        saveCollapsedFolders(allFolderIds);
+        document.querySelectorAll('.folder-container').forEach(folderEl => {
+            const folderId = folderEl.dataset.id;
+            toggleFolderCollapse(folderEl, folderId, true, immediate);
+        });
     }
+
+    function getCleanRootOrder() {
+        const validFolderIds = new Set(folders.map(f => f.id));
+        const validAccountTokens = new Set(accounts.filter(a => !a.folderId).map(a => a.token));
+
+        const result = [];
+        const seen = new Set();
+
+        for (const key of rootOrder) {
+            if (key.startsWith('folder:')) {
+                const fId = key.slice(7);
+                if (validFolderIds.has(fId) && !seen.has(key)) {
+                    result.push(key);
+                    seen.add(key);
+                }
+            } else if (key.startsWith('account:')) {
+                const token = key.slice(8);
+                if (validAccountTokens.has(token) && !seen.has(key)) {
+                    result.push(key);
+                    seen.add(key);
+                }
+            }
+        }
+
+        for (const f of folders) {
+            const key = 'folder:' + f.id;
+            if (!seen.has(key)) {
+                result.push(key);
+                seen.add(key);
+            }
+        }
+
+        for (const a of accounts) {
+            if (!a.folderId) {
+                const key = 'account:' + a.token;
+                if (!seen.has(key)) {
+                    result.push(key);
+                    seen.add(key);
+                }
+            }
+        }
+
+        rootOrder = result;
+        return rootOrder;
+    }
+
+
+
+
 
     function adjustFolderMenuPosition(folderContainer, folderMenu) {
         if (!folderMenu) return;
@@ -763,413 +931,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function collapseAllFolders() {
-        const allFolderIds = folders.map(folder => folder.id);
-        saveCollapsedFolders(allFolderIds);
-        document.querySelectorAll('.folder-container').forEach(folderEl => {
-            folderEl.classList.add('collapsed');
-            const folderIcon = folderEl.querySelector('.folder-icon');
-            if (folderIcon) {
-                folderIcon.style.transform = '';
-            }
-            const folderContent = folderEl.querySelector('.folder-content');
-            if (folderContent) {
-                folderContent.style.transition = 'none';
-                folderContent.style.maxHeight = '0';
-                folderContent.style.paddingTop = '0';
-                folderContent.style.paddingBottom = '0';
-                folderContent.style.opacity = '0';
-                folderContent.style.pointerEvents = 'none';
-            }
-        });
-        if (listContainer) listContainer.offsetHeight;
-        requestAnimationFrame(() => {
-            document.querySelectorAll('.folder-container .folder-content').forEach(fc => {
-                fc.style.transition = '';
-            });
-        });
-    }
-
-    function beginPointerDrag(element, type, pointerId, startX, startY) {
-        folders.forEach(f => {
-            delete f.menuOpen;
-        });
-        listContainer.querySelectorAll('.folder-actions.open').forEach(el => {
-            el.classList.remove('open');
-        });
-        listContainer.querySelectorAll('.folder-menu.open').forEach(el => {
-            el.classList.remove('open');
-        });
-
-        if (type === 'folder') {
-            collapseAllFolders();
-            ignoreFolderClick = true;
-        }
-
-        draggingElement = element;
-        draggingType = type;
-        dragPointerId = pointerId;
-        dragStarted = true;
-        currentDragTarget = null;
-        lastReorderTime = 0;
-
-        const headerEl = type === 'folder' ? element.querySelector('.folder-header') : null;
-        const rect = (headerEl || element).getBoundingClientRect();
-        draggingWidth = rect.width;
-        draggingHeight = rect.height;
-        dragOffsetX = startX - rect.left;
-        dragOffsetY = startY - rect.top;
-        latestPointerX = startX;
-        latestPointerY = startY;
-
-        dragProxy = element.cloneNode(true);
-        dragProxy.classList.add('drag-proxy');
-        if (type === 'folder') {
-            dragProxy.classList.add('collapsed');
-            const proxyFolderContent = dragProxy.querySelector('.folder-content');
-            if (proxyFolderContent) {
-                proxyFolderContent.remove();
-            }
-        }
-        dragProxy.style.width = rect.width + 'px';
-        dragProxy.style.height = rect.height + 'px';
-        dragProxy.style.position = 'fixed';
-        dragProxy.style.left = '0px';
-        dragProxy.style.top = '0px';
-        dragProxy.style.margin = '0';
-        const startPosX = startX - dragOffsetX;
-        const startPosY = startY - dragOffsetY;
-        dragProxy.style.transform = `translate3d(${startPosX}px, ${startPosY}px, 0) scale(1.03)`;
-        dragProxy.style.transition = 'none';
-        dragProxy.style.pointerEvents = 'none';
-        dragProxy.setAttribute('aria-hidden', 'true');
-        document.body.appendChild(dragProxy);
-
-        document.body.classList.add('dragging-active');
-        document.body.style.userSelect = 'none';
-        element.classList.add('dragging');
-        movePointerDrag(startX, startY);
-    }
-
-    function finishPointerDrag() {
-        if (dragRafId) {
-            cancelAnimationFrame(dragRafId);
-            dragRafId = null;
-        }
-        stopScroll();
-        document.body.classList.remove('dragging-active');
-        document.body.style.userSelect = '';
-        if (!draggingElement) {
-            cancelPendingDrag();
-            return;
-        }
-
-        if (pendingDrag && pendingDrag.element) {
-            try {
-                pendingDrag.element.releasePointerCapture(pendingDrag.pointerId);
-            } catch (err) { }
-        }
-
-        const draggedElement = draggingElement;
-
-        const cleanup = () => {
-            draggedElement.classList.remove('dragging');
-            draggedElement.style.opacity = '';
-            draggedElement.style.transform = '';
-            draggedElement.style.transition = '';
-
-            const allItems = listContainer.querySelectorAll('.account-item, .folder-container');
-            allItems.forEach(item => {
-                item.style.transition = '';
-                item.style.transform = '';
-            });
-
-            draggingElement = null;
-            draggingType = null;
-            dragStarted = false;
-            dragPointerId = null;
-            pendingDrag = null;
-            currentDragTarget = null;
-            clearFolderHover();
-        };
-
-        if (dragProxy) {
-            const currentRect = dragProxy.getBoundingClientRect();
-            const targetRect = draggedElement.getBoundingClientRect();
-            const dist = Math.hypot(targetRect.left - currentRect.left, targetRect.top - currentRect.top);
-            const duration = Math.min(200, Math.max(120, dist * 0.45));
-
-            dragProxy.style.transition = 'none';
-
-            const anim = dragProxy.animate([
-                {
-                    transform: `translate3d(${currentRect.left}px, ${currentRect.top}px, 0) scale(1.03)`,
-                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88, 101, 242, 0.5)',
-                    opacity: 1
-                },
-                {
-                    transform: `translate3d(${targetRect.left}px, ${targetRect.top}px, 0) scale(1)`,
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-                    opacity: 1
-                }
-            ], {
-                duration: duration,
-                easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-                fill: 'forwards'
-            });
-
-            anim.onfinish = () => {
-                if (dragProxy) {
-                    dragProxy.remove();
-                    dragProxy = null;
-                }
-                cleanup();
-                saveOrderFromDOM(false);
-                setTimeout(() => { ignoreFolderClick = false; }, 50);
-            };
-        } else {
-            cleanup();
-            saveOrderFromDOM(false);
-            setTimeout(() => { ignoreFolderClick = false; }, 50);
-        }
-    }
-
-    function cancelPendingDrag() {
-        if (dragRafId) {
-            cancelAnimationFrame(dragRafId);
-            dragRafId = null;
-        }
-        stopScroll();
-        document.body.classList.remove('dragging-active');
-        document.body.style.userSelect = '';
-        if (pendingDrag && pendingDrag.element) {
-            try {
-                pendingDrag.element.releasePointerCapture(pendingDrag.pointerId);
-            } catch (err) { }
-        }
-        pendingDrag = null;
-        dragPointerId = null;
-        dragStarted = false;
-        currentDragTarget = null;
-        setTimeout(() => { ignoreFolderClick = false; }, 0);
-    }
-
-    function updateFolderDragTarget(target, clientY) {
-        if (!target) return;
-        if (target === draggingElement || draggingElement.contains(target)) return;
-
-        const folderTarget = target.closest('.folder-container');
-        if (!folderTarget || folderTarget === draggingElement) return;
-
-        const header = folderTarget.querySelector('.folder-header');
-        if (!header) return;
-        const rect = header.getBoundingClientRect();
-        const targetCenterY = rect.top + rect.height / 2;
-        const shouldInsertBefore = clientY < targetCenterY;
-
-        const alreadyBefore = folderTarget.previousElementSibling === draggingElement;
-        const alreadyAfter = folderTarget.nextElementSibling === draggingElement;
-        if ((shouldInsertBefore && alreadyBefore) || (!shouldInsertBefore && alreadyAfter)) return;
-
-        const now = performance.now();
-        if (now - lastReorderTime < 50) return;
-        lastReorderTime = now;
-
-        animateReorder(listContainer, () => {
-            if (shouldInsertBefore) {
-                folderTarget.insertAdjacentElement('beforebegin', draggingElement);
-            } else {
-                folderTarget.insertAdjacentElement('afterend', draggingElement);
-            }
-        });
-    }
-
-    function updateAccountDragTarget(target, clientY) {
-        if (!target) return;
-        if (target === draggingElement || draggingElement.contains(target)) return;
-
-        const accountTarget = target.closest('.account-item');
-        const folderTarget = target.closest('.folder-container');
-
-        if (accountTarget && accountTarget !== draggingElement) {
-            const rect = accountTarget.getBoundingClientRect();
-            const targetCenterY = rect.top + rect.height / 2;
-            const shouldInsertBefore = clientY < targetCenterY;
-            const parent = accountTarget.parentElement;
-
-            if (parent) {
-                const alreadyBefore = accountTarget.previousElementSibling === draggingElement;
-                const alreadyAfter = accountTarget.nextElementSibling === draggingElement;
-                if ((shouldInsertBefore && alreadyBefore) || (!shouldInsertBefore && alreadyAfter)) {
-                    return;
-                }
-            }
-
-            const now = performance.now();
-            if (now - lastReorderTime < 50) return;
-            lastReorderTime = now;
-
-            animateReorder(parent || listContainer, () => {
-                if (shouldInsertBefore) {
-                    accountTarget.insertAdjacentElement('beforebegin', draggingElement);
-                } else {
-                    accountTarget.insertAdjacentElement('afterend', draggingElement);
-                }
-            });
-            clearFolderHover();
-            return;
-        }
-
-        if (folderTarget && folderTarget !== draggingElement) {
-            const folderContent = folderTarget.querySelector('.folder-content');
-            if (folderContent) {
-                if (folderContent.contains(draggingElement) && draggingElement.parentElement === folderContent) {
-                    return;
-                }
-
-                const now = performance.now();
-                if (now - lastReorderTime < 50) return;
-                lastReorderTime = now;
-
-                const emptyMsg = folderContent.querySelector('.folder-empty-msg');
-                animateReorder(listContainer, () => {
-                    if (emptyMsg) emptyMsg.style.display = 'none';
-                    folderContent.appendChild(draggingElement);
-                });
-                updateFolderHover(folderTarget);
-                return;
-            }
-        }
-
-        const listArea = target.closest('#accountList') || target.closest('.uncategorized-label');
-        if (listArea) {
-            const topLevelChildren = Array.from(listContainer.children).filter(el =>
-                el !== draggingElement && (el.classList.contains('account-item') || el.classList.contains('folder-container'))
-            );
-            if (topLevelChildren.length > 0) {
-                const lastEl = topLevelChildren[topLevelChildren.length - 1];
-                const lastElRect = lastEl.getBoundingClientRect();
-                if (clientY < lastElRect.bottom) {
-                    return;
-                }
-            }
-
-            if (draggingElement.parentElement === listContainer && listContainer.lastElementChild === draggingElement) {
-                return;
-            }
-
-            const now = performance.now();
-            if (now - lastReorderTime < 50) return;
-            lastReorderTime = now;
-
-            animateReorder(listContainer, () => {
-                listContainer.appendChild(draggingElement);
-            });
-            clearFolderHover();
-        }
-    }
-
-    function updateDragTarget(clientX, clientY) {
-        const target = document.elementFromPoint(clientX, clientY);
-        if (!target) return;
-
-        const newTarget = draggingType === 'folder' ? target.closest('.folder-container') : target.closest('.account-item, .folder-container, #accountList, .uncategorized-label');
-        currentDragTarget = newTarget;
-
-        if (draggingType === 'folder') {
-            updateFolderDragTarget(target, clientY);
-        } else if (draggingType === 'account') {
-            updateAccountDragTarget(target, clientY);
-        }
-    }
-
-    function movePointerDrag(clientX, clientY) {
-        latestPointerX = clientX;
-        latestPointerY = clientY;
-
-        if (dragProxy) {
-            const posX = clientX - dragOffsetX;
-            const posY = clientY - dragOffsetY;
-            dragProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.03)`;
-        }
-
-        handleAutoScroll({ clientY });
-
-        if (!dragRafId) {
-            dragRafId = requestAnimationFrame(() => {
-                dragRafId = null;
-                if (!dragStarted) return;
-                const centerX = dragProxy ? (latestPointerX - dragOffsetX + draggingWidth / 2) : latestPointerX;
-                const centerY = dragProxy ? (latestPointerY - dragOffsetY + draggingHeight / 2) : latestPointerY;
-                updateDragTarget(centerX, centerY);
-            });
-        }
-    }
-
-    function onPointerMove(e) {
-        if (e.pointerId !== dragPointerId) return;
-        if (!dragStarted && pendingDrag) {
-            const distance = Math.hypot(e.clientX - pendingDrag.startX, e.clientY - pendingDrag.startY);
-            if (distance >= DRAG_START_THRESHOLD) {
-                beginPointerDrag(pendingDrag.element, pendingDrag.type, pendingDrag.pointerId, pendingDrag.startX, pendingDrag.startY);
-            }
-        }
-
-        if (dragStarted) {
-            movePointerDrag(e.clientX, e.clientY);
-        }
-    }
-
-    function onPointerUp(e) {
-        if (e.pointerId !== dragPointerId) return;
-        if (dragStarted) {
-            if (dragRafId) {
-                cancelAnimationFrame(dragRafId);
-                dragRafId = null;
-            }
-            latestPointerX = e.clientX;
-            latestPointerY = e.clientY;
-            if (dragProxy) {
-                const posX = e.clientX - dragOffsetX;
-                const posY = e.clientY - dragOffsetY;
-                dragProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.03)`;
-                const centerX = posX + draggingWidth / 2;
-                const centerY = posY + draggingHeight / 2;
-                updateDragTarget(centerX, centerY);
-            }
-            finishPointerDrag();
-        } else {
-            cancelPendingDrag();
-        }
-    }
-
-    function onPointerCancel(e) {
-        if (e.pointerId !== dragPointerId) return;
-        if (dragStarted) {
-            if (dragRafId) {
-                cancelAnimationFrame(dragRafId);
-                dragRafId = null;
-            }
-            latestPointerX = e.clientX;
-            latestPointerY = e.clientY;
-            if (dragProxy) {
-                const posX = e.clientX - dragOffsetX;
-                const posY = e.clientY - dragOffsetY;
-                dragProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.03)`;
-                const centerX = posX + draggingWidth / 2;
-                const centerY = posY + draggingHeight / 2;
-                updateDragTarget(centerX, centerY);
-            }
-            finishPointerDrag();
-        } else {
-            cancelPendingDrag();
-        }
-    }
 
 
-    document.addEventListener('pointermove', onPointerMove);
-    document.addEventListener('pointerup', onPointerUp);
-    document.addEventListener('pointercancel', onPointerCancel);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     document.addEventListener('click', (e) => {
         const folderMenuBtn = e.target.closest('.folder-menu-btn');
@@ -1243,17 +1021,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             return filteredAccounts.some(acc => acc.folderId === folder.id);
         });
 
-        visibleFolders.forEach((folder) => {
+        function createFolderElement(folder, folderAccounts) {
             const folderContainer = document.createElement('div');
             folderContainer.className = `folder-container ${collapsedFolders.includes(folder.id) ? 'collapsed' : ''} ${folder.color ? 'color-' + folder.color : ''}`;
             folderContainer.dataset.id = folder.id;
 
-            const folderAccounts = filteredAccounts.filter(acc => acc.folderId === folder.id);
             const count = folderAccounts.length;
             const isEditing = folder.isEditing;
 
             folderContainer.innerHTML = `
                 <div class="folder-header" data-id="${folder.id}">
+                    <div class="drag-handle" title="${getTranslation('actions.dragReorder')}" data-drag-handle="folder" data-id="${folder.id}">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="8" cy="6" r="1.5"></circle>
+                            <circle cx="16" cy="6" r="1.5"></circle>
+                            <circle cx="8" cy="12" r="1.5"></circle>
+                            <circle cx="16" cy="12" r="1.5"></circle>
+                            <circle cx="8" cy="18" r="1.5"></circle>
+                            <circle cx="16" cy="18" r="1.5"></circle>
+                        </svg>
+                    </div>
                     <div class="folder-icon">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7 10L12 15L17 10H7Z"></path>
@@ -1329,16 +1116,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
 
-
             const deleteFolderPanelBtn = folderContainer.querySelector('.delete-folder-panel-btn');
             if (deleteFolderPanelBtn) {
                 deleteFolderPanelBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     const newFolders = folders.filter(f => f.id !== folder.id).map(({ isEditing, menuOpen, ...rest }) => rest);
                     const newAccounts = accounts.map(acc => acc.folderId === folder.id ? { ...acc, folderId: null } : acc);
-                    chrome.storage.local.set({ discordFolders: newFolders, discordAccounts: newAccounts }, () => {
-                        folders = newFolders;
-                        accounts = newAccounts;
+                    folders = newFolders;
+                    accounts = newAccounts;
+                    const clean = getCleanRootOrder();
+                    chrome.storage.local.set({ discordFolders: newFolders, discordAccounts: newAccounts, discordRootOrder: clean }, () => {
                         renderAccounts();
                     });
                 });
@@ -1388,47 +1175,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             folderHeader.addEventListener('click', (e) => {
-                if (ignoreFolderClick) {
-                    ignoreFolderClick = false;
-                    return;
-                }
-                if (e.target.closest('.folder-actions, .icon-btn, .color-option, .folder-menu') || e.target.closest('input')) return;
+                if (e.target.closest('.drag-handle, .folder-actions, .icon-btn, .color-option, .folder-menu') || e.target.closest('input')) return;
 
-                const id = folder.id;
-                const isCollapsed = collapsedFolders.includes(id);
-                if (isCollapsed) {
-                    saveCollapsedFolders(collapsedFolders.filter(fid => fid !== id));
-                    folderContainer.classList.remove('collapsed');
-                    if (folderContent) {
-                        folderContent.style.maxHeight = '';
-                        folderContent.style.paddingTop = '';
-                        folderContent.style.paddingBottom = '';
-                        folderContent.style.opacity = '';
-                        folderContent.style.pointerEvents = '';
-                    }
-                } else {
-                    saveCollapsedFolders([...collapsedFolders, id]);
-                    folderContainer.classList.add('collapsed');
-                }
-            });
-
-            folderHeader.addEventListener('pointerdown', (e) => {
-                if (searchQuery && searchQuery.trim() !== '') return;
-                if (e.button !== 0) return;
-                if (e.target.closest('.icon-btn') || e.target.closest('input') || e.target.closest('.folder-menu')) return;
-                e.preventDefault();
-
-                pendingDrag = {
-                    element: folderContainer,
-                    type: 'folder',
-                    pointerId: e.pointerId,
-                    startX: e.clientX,
-                    startY: e.clientY
-                };
-                dragPointerId = e.pointerId;
-                try {
-                    folderHeader.setPointerCapture(e.pointerId);
-                } catch (err) { }
+                toggleFolderCollapse(folderContainer, folder.id);
             });
 
             if (folderAccounts.length === 0) {
@@ -1444,21 +1193,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
 
-            listContainer.appendChild(folderContainer);
-        });
-
-        const uncategorizedAccounts = filteredAccounts.filter(acc => !acc.folderId);
-        if (uncategorizedAccounts.length > 0 && folders.length > 0) {
-            const label = document.createElement('div');
-            label.className = 'uncategorized-label';
-            label.textContent = getTranslation('uncategorized');
-            listContainer.appendChild(label);
+            return folderContainer;
         }
 
-        uncategorizedAccounts.forEach((acc) => {
-            const accIndex = accounts.indexOf(acc);
-            const item = createAccountItem(acc, accIndex);
-            listContainer.appendChild(item);
+        const cleanOrder = getCleanRootOrder();
+
+        cleanOrder.forEach(key => {
+            if (key.startsWith('folder:')) {
+                const fId = key.slice(7);
+                const folder = visibleFolders.find(f => f.id === fId);
+                if (folder) {
+                    const folderAccounts = filteredAccounts.filter(acc => acc.folderId === folder.id);
+                    const folderEl = createFolderElement(folder, folderAccounts);
+                    listContainer.appendChild(folderEl);
+                }
+            } else if (key.startsWith('account:')) {
+                const token = key.slice(8);
+                const acc = filteredAccounts.find(a => a.token === token && !a.folderId);
+                if (acc) {
+                    const accIndex = accounts.indexOf(acc);
+                    const item = createAccountItem(acc, accIndex);
+                    listContainer.appendChild(item);
+                }
+            }
         });
 
         if (filteredAccounts.length === 0 && visibleFolders.length === 0 && searchQuery.trim() !== '') {
@@ -2071,9 +1828,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const badgesHtml = renderBadgesHtml(badges);
 
         item.innerHTML = `
-            <div class="drag-handle" title="${getTranslation('actions.dragReorder')}">
+            <div class="drag-handle" title="${getTranslation('actions.dragReorder')}" data-drag-handle="account" data-token="${escapeHtml(acc.token)}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M4 11H20V13H4V11ZM4 6H20V8H4V6ZM4 16H20V18H4V16Z"></path>
+                    <circle cx="8" cy="6" r="1.5"></circle>
+                    <circle cx="16" cy="6" r="1.5"></circle>
+                    <circle cx="8" cy="12" r="1.5"></circle>
+                    <circle cx="16" cy="12" r="1.5"></circle>
+                    <circle cx="8" cy="18" r="1.5"></circle>
+                    <circle cx="16" cy="18" r="1.5"></circle>
                 </svg>
             </div>
             <img src="${avatarUrl}" class="account-avatar" alt="Avatar">
@@ -2316,24 +2078,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             saveAccounts(newAccs);
         });
 
-        item.addEventListener('pointerdown', (e) => {
-            if (searchQuery && searchQuery.trim() !== '') return;
-            if (e.button !== 0) return;
-            if (e.target.closest('.icon-btn') || e.target.closest('.account-badges') || e.target.closest('.account-menu-wrapper') || e.target.closest('.invalid-warning')) return;
-            e.preventDefault();
 
-            pendingDrag = {
-                element: item,
-                type: 'account',
-                pointerId: e.pointerId,
-                startX: e.clientX,
-                startY: e.clientY
-            };
-            dragPointerId = e.pointerId;
-            try {
-                item.setPointerCapture(e.pointerId);
-            } catch (err) { }
-        });
 
         return item;
     }
@@ -3921,142 +3666,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         saveCollapsedFolders([...collapsedFolders, folderId]);
 
+        getCleanRootOrder();
+        rootOrder.push('folder:' + folderId);
+        chrome.storage.local.set({ discordRootOrder: rootOrder });
+
         saveFolders(newFolders);
     });
 
-    function handleAutoScroll(e) {
-        if (!listContainer) return;
-        const rect = listContainer.getBoundingClientRect();
-        const topDist = e.clientY - rect.top;
-        const bottomDist = rect.bottom - e.clientY;
-
-        if (topDist < SCROLL_ZONE && topDist > 0) {
-            scrollDirection = -1;
-            scrollIntensity = (SCROLL_ZONE - topDist) / SCROLL_ZONE;
-            startScrollLoop();
-        } else if (bottomDist < SCROLL_ZONE && bottomDist > 0) {
-            scrollDirection = 1;
-            scrollIntensity = (SCROLL_ZONE - bottomDist) / SCROLL_ZONE;
-            startScrollLoop();
-        } else {
-            stopScroll();
-        }
-    }
-
-    function startScrollLoop() {
-        if (autoScrollRafId) return;
-        const scrollStep = () => {
-            if (!dragStarted || !listContainer) {
-                stopScroll();
-                return;
-            }
-            listContainer.scrollTop += scrollDirection * (MAX_SCROLL_SPEED * scrollIntensity);
-            if (dragProxy) {
-                const centerX = latestPointerX - dragOffsetX + draggingWidth / 2;
-                const centerY = latestPointerY - dragOffsetY + draggingHeight / 2;
-                updateDragTarget(centerX, centerY);
-            }
-            autoScrollRafId = requestAnimationFrame(scrollStep);
-        };
-        autoScrollRafId = requestAnimationFrame(scrollStep);
-    }
-
-    function stopScroll() {
-        if (autoScrollRafId) {
-            cancelAnimationFrame(autoScrollRafId);
-            autoScrollRafId = null;
-        }
-    }
-
-    function animateReorder(containerOrCallback, callback) {
-        let container = listContainer;
-        let action = containerOrCallback;
-
-        if (typeof callback === 'function') {
-            container = containerOrCallback;
-            action = callback;
-        }
-
-        const items = Array.from(container.querySelectorAll('.account-item, .folder-container'));
-        const firstPositions = new Map();
-
-        items.forEach(item => {
-            firstPositions.set(item, item.getBoundingClientRect());
-        });
-
-        action();
-
-        const transforms = [];
-        items.forEach(item => {
-            if (item === draggingElement) return;
-            const firstRect = firstPositions.get(item);
-            if (!firstRect) return;
-
-            const lastRect = item.getBoundingClientRect();
-            const deltaX = firstRect.left - lastRect.left;
-            const deltaY = firstRect.top - lastRect.top;
-
-            if (deltaX !== 0 || deltaY !== 0) {
-                transforms.push({ item, deltaX, deltaY });
-            }
-        });
-
-        transforms.forEach(({ item, deltaX, deltaY }) => {
-            item.animate([
-                { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` },
-                { transform: 'translate3d(0px, 0px, 0)' }
-            ], {
-                duration: 180,
-                easing: 'cubic-bezier(0.2, 0, 0, 1)'
-            });
-        });
-    }
 
 
-    async function saveOrderFromDOM(shouldRender = false) {
-        if (searchQuery && searchQuery.trim() !== '') return;
-        const folderEls = Array.from(listContainer.querySelectorAll('.folder-container'));
-        const newFoldersOrder = folderEls.map(el => {
-            const folderId = el.dataset.id;
-            const originalFolder = folders.find(f => f.id === folderId);
-            return { ...originalFolder };
-        });
 
-        const newAccountsOrder = [];
 
-        folderEls.forEach(folderEl => {
-            const folderId = folderEl.dataset.id;
-            const accountEls = folderEl.querySelectorAll('.account-item');
-            accountEls.forEach(accEl => {
-                const accToken = accEl.dataset.token;
-                const originalAcc = accounts.find(a => a.token === accToken);
-                if (originalAcc) {
-                    newAccountsOrder.push({ ...originalAcc, folderId });
-                }
-            });
-        });
 
-        const topLevelAccEls = Array.from(listContainer.children).filter(el => el.classList.contains('account-item'));
-        topLevelAccEls.forEach(accEl => {
-            const accToken = accEl.dataset.token;
-            const originalAcc = accounts.find(a => a.token === accToken);
-            if (originalAcc) {
-                newAccountsOrder.push({ ...originalAcc, folderId: null });
-            }
-        });
 
-        accounts = newAccountsOrder;
-        folders = newFoldersOrder;
 
-        await Promise.all([
-            chrome.storage.local.set({ discordAccounts: accounts }),
-            chrome.storage.local.set({ discordFolders: folders.map(({ isEditing, menuOpen, ...rest }) => rest) })
-        ]);
 
-        if (shouldRender) {
-            renderAccounts();
-        }
-    }
+
+
 
     function switchAccount(token, accId) {
         chrome.runtime.sendMessage({
@@ -4551,8 +4177,725 @@ document.addEventListener('DOMContentLoaded', async () => {
             hideBadgesPopover(0);
         }
     });
+    // ==========================================
+    // MODERN ENTERPRISE DRAG & DROP SYSTEM
+    // ==========================================
+    let dropIndicatorLine = null;
+    let dragGhostProxy = null;
+    let pendingDrag = null;
+    let activeDrag = null;
+    let cachedTargets = null;
+    let autoScrollRafId = null;
+    let hoverExpandTimer = null;
+    let currentHoverFolder = null;
+    let lastDropTarget = null;
+
+    function getOrCreateDropIndicator() {
+        if (!dropIndicatorLine) {
+            dropIndicatorLine = document.getElementById('dropIndicatorLine');
+            if (!dropIndicatorLine) {
+                dropIndicatorLine = document.createElement('div');
+                dropIndicatorLine.id = 'dropIndicatorLine';
+                document.body.appendChild(dropIndicatorLine);
+            }
+        }
+        return dropIndicatorLine;
+    }
+
+    function clearDragEffects() {
+        if (hoverExpandTimer) {
+            clearTimeout(hoverExpandTimer);
+            hoverExpandTimer = null;
+        }
+        if (autoScrollRafId) {
+            cancelAnimationFrame(autoScrollRafId);
+            autoScrollRafId = null;
+        }
+        if (currentHoverFolder) {
+            currentHoverFolder.classList.remove('drop-target-inside');
+            currentHoverFolder = null;
+        }
+        if (dropIndicatorLine) {
+            dropIndicatorLine.style.display = 'none';
+        }
+        document.body.classList.remove('dragging-active');
+        document.querySelectorAll('.is-dragged').forEach(el => el.classList.remove('is-dragged'));
+    }
+
+    function cacheDropTargets(dragType, draggedElement) {
+        if (!listContainer) return { listRect: null, rootTargets: [], folders: [], nestedAccounts: [] };
+        const listRect = listContainer.getBoundingClientRect();
+        const rootTargets = [];
+        const folders = [];
+        const nestedAccounts = [];
+
+        // Direct children of listContainer are root items: .folder-container OR .account-item
+        for (const child of listContainer.children) {
+            if (child === draggedElement) continue;
+
+            if (child.classList.contains('folder-container')) {
+                const header = child.querySelector('.folder-header');
+                const content = child.querySelector('.folder-content');
+                const emptyEl = child.querySelector('.empty-folder');
+                const fRect = child.getBoundingClientRect();
+                const hRect = header ? header.getBoundingClientRect() : fRect;
+                const isCollapsed = child.classList.contains('collapsed');
+
+                const folderInfo = {
+                    element: child,
+                    headerElement: header,
+                    emptyElement: emptyEl,
+                    id: child.dataset.id,
+                    key: 'folder:' + child.dataset.id,
+                    type: 'folder',
+                    rect: fRect,
+                    headerRect: hRect,
+                    isCollapsed
+                };
+
+                rootTargets.push(folderInfo);
+                folders.push(folderInfo);
+
+                // If folder is open, cache its nested accounts
+                if (!isCollapsed && content) {
+                    const accEls = Array.from(content.querySelectorAll('.account-item')).filter(el => el !== draggedElement);
+                    for (const aEl of accEls) {
+                        nestedAccounts.push({
+                            element: aEl,
+                            token: aEl.dataset.token,
+                            folderId: child.dataset.id,
+                            rect: aEl.getBoundingClientRect()
+                        });
+                    }
+                }
+            } else if (child.classList.contains('account-item')) {
+                rootTargets.push({
+                    element: child,
+                    token: child.dataset.token,
+                    key: 'account:' + child.dataset.token,
+                    type: 'account',
+                    rect: child.getBoundingClientRect()
+                });
+            }
+        }
+
+        return { listRect, rootTargets, folders, nestedAccounts };
+    }
+
+    function startDragEngine(info, clientX, clientY) {
+        clearDragEffects();
+
+        if (info.type === 'folder') {
+            collapseAllFolders(true);
+        }
+
+        const el = info.element;
+        const headerEl = info.type === 'folder' ? el.querySelector('.folder-header') : null;
+        const rect = (headerEl || el).getBoundingClientRect();
+
+        const ghost = el.cloneNode(true);
+        ghost.id = 'dragGhostProxy';
+        ghost.style.transition = 'none';
+
+        if (info.type === 'folder') {
+            ghost.classList.add('collapsed');
+            const content = ghost.querySelector('.folder-content');
+            if (content) content.remove();
+            ghost.style.height = `${rect.height}px`;
+        } else {
+            ghost.style.height = `${rect.height}px`;
+        }
+        ghost.style.width = `${rect.width}px`;
+        ghost.style.left = '0px';
+        ghost.style.top = '0px';
+
+        const offsetX = clientX - rect.left;
+        const offsetY = clientY - rect.top;
+        const startX = clientX - offsetX;
+        const startY = clientY - offsetY;
+
+        ghost.style.transform = `translate3d(${startX}px, ${startY}px, 0) scale(1.02)`;
+        document.body.appendChild(ghost);
+        dragGhostProxy = ghost;
+
+        el.classList.add('is-dragged');
+        document.body.classList.add('dragging-active');
+
+        cachedTargets = cacheDropTargets(info.type, el);
+        lastDropTarget = null;
+
+        activeDrag = {
+            type: info.type,
+            element: el,
+            id: info.id,
+            token: info.token,
+            originRect: rect,
+            pointerId: info.pointerId,
+            offsetX,
+            offsetY,
+            width: rect.width,
+            height: rect.height,
+            currentX: clientX,
+            currentY: clientY
+        };
+
+        getOrCreateDropIndicator();
+        updateDragEngine(clientX, clientY);
+    }
+
+    function updateDragEngine(clientX, clientY) {
+        if (!activeDrag || !dragGhostProxy) return;
+
+        activeDrag.currentX = clientX;
+        activeDrag.currentY = clientY;
+
+        const posX = clientX - activeDrag.offsetX;
+        const posY = clientY - activeDrag.offsetY;
+        dragGhostProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.02)`;
+
+        // Edge Auto-scrolling
+        handleAutoScroll(clientY);
+
+        // Calculate Drop Target
+        computeDropTarget(clientX, clientY);
+    }
+
+    function handleAutoScroll(clientY) {
+        if (!listContainer || !activeDrag) return;
+        const rect = listContainer.getBoundingClientRect();
+        const SCROLL_ZONE = 36;
+        const MAX_SPEED = 12;
+
+        let speed = 0;
+        if (clientY < rect.top + SCROLL_ZONE && clientY > rect.top - 15) {
+            const intensity = Math.max(0, (rect.top + SCROLL_ZONE - clientY) / SCROLL_ZONE);
+            speed = -intensity * MAX_SPEED;
+        } else if (clientY > rect.bottom - SCROLL_ZONE && clientY < rect.bottom + 15) {
+            const intensity = Math.max(0, (clientY - (rect.bottom - SCROLL_ZONE)) / SCROLL_ZONE);
+            speed = intensity * MAX_SPEED;
+        }
+
+        if (speed !== 0) {
+            if (!autoScrollRafId) {
+                const step = () => {
+                    if (!activeDrag) {
+                        autoScrollRafId = null;
+                        return;
+                    }
+                    listContainer.scrollTop += speed;
+                    cachedTargets = cacheDropTargets(activeDrag.type, activeDrag.element);
+                    computeDropTarget(activeDrag.currentX, activeDrag.currentY);
+                    autoScrollRafId = requestAnimationFrame(step);
+                };
+                autoScrollRafId = requestAnimationFrame(step);
+            }
+        } else if (autoScrollRafId) {
+            cancelAnimationFrame(autoScrollRafId);
+            autoScrollRafId = null;
+        }
+    }
+
+    function computeDropTarget(clientX, clientY) {
+        if (!cachedTargets || !activeDrag) return;
+        const indicator = getOrCreateDropIndicator();
+
+        // SCENARIO 1: DRAGGING A FOLDER
+        if (activeDrag.type === 'folder') {
+            const rootTargets = cachedTargets.rootTargets;
+            if (rootTargets.length === 0) {
+                indicator.style.display = 'none';
+                lastDropTarget = null;
+                return;
+            }
+
+            let bestTarget = null;
+            let bestDist = Infinity;
+
+            for (const rt of rootTargets) {
+                const midY = rt.rect.top + rt.rect.height * 0.5;
+                const dist = Math.abs(clientY - midY);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestTarget = rt;
+                }
+            }
+
+            if (!bestTarget) {
+                indicator.style.display = 'none';
+                lastDropTarget = null;
+                return;
+            }
+
+            const isBefore = clientY < (bestTarget.rect.top + bestTarget.rect.height * 0.5);
+            const targetY = isBefore ? bestTarget.rect.top : bestTarget.rect.bottom;
+
+            indicator.style.display = 'block';
+            indicator.style.top = `${Math.round(targetY - 1.5)}px`;
+            indicator.style.left = `${Math.round(bestTarget.rect.left + 2)}px`;
+            indicator.style.width = `${Math.round(bestTarget.rect.width - 4)}px`;
+
+            lastDropTarget = {
+                type: 'root',
+                position: isBefore ? 'before' : 'after',
+                targetKey: bestTarget.key,
+                targetY: targetY
+            };
+            return;
+        }
+
+        // SCENARIO 2: DRAGGING AN ACCOUNT
+        if (activeDrag.type === 'account') {
+            // A) Check if hovering over nested accounts inside an OPEN folder
+            let bestNested = null;
+            let bestNestedDist = Infinity;
+
+            for (const na of cachedTargets.nestedAccounts) {
+                if (clientX >= na.rect.left - 20 && clientX <= na.rect.right + 20) {
+                    if (clientY >= na.rect.top - 8 && clientY <= na.rect.bottom + 8) {
+                        const midY = na.rect.top + na.rect.height * 0.5;
+                        const dist = Math.abs(clientY - midY);
+                        if (dist < bestNestedDist) {
+                            bestNestedDist = dist;
+                            bestNested = na;
+                        }
+                    }
+                }
+            }
+
+            if (bestNested) {
+                if (currentHoverFolder) {
+                    currentHoverFolder.classList.remove('drop-target-inside');
+                    currentHoverFolder = null;
+                }
+                if (hoverExpandTimer) {
+                    clearTimeout(hoverExpandTimer);
+                    hoverExpandTimer = null;
+                }
+
+                const isBefore = clientY < (bestNested.rect.top + bestNested.rect.height * 0.5);
+                const targetY = isBefore ? bestNested.rect.top : bestNested.rect.bottom;
+
+                indicator.style.display = 'block';
+                indicator.style.top = `${Math.round(targetY - 1.5)}px`;
+                indicator.style.left = `${Math.round(bestNested.rect.left + 2)}px`;
+                indicator.style.width = `${Math.round(bestNested.rect.width - 4)}px`;
+
+                lastDropTarget = {
+                    type: 'nested_account',
+                    folderId: bestNested.folderId,
+                    targetToken: bestNested.token,
+                    position: isBefore ? 'before' : 'after',
+                    targetY: targetY
+                };
+                return;
+            }
+
+            // B) Check if hovering over folder headers or empty open folders
+            let hoveringFolder = null;
+            let isFolderHeaderEdge = null; // 'before' | 'after' | null
+
+            for (const f of cachedTargets.folders) {
+                // Check folder header
+                if (clientX >= f.headerRect.left && clientX <= f.headerRect.right) {
+                    if (clientY >= f.headerRect.top && clientY <= f.headerRect.bottom) {
+                        if (clientY < f.headerRect.top + 7) {
+                            hoveringFolder = f;
+                            isFolderHeaderEdge = 'before';
+                            break;
+                        } else if (f.isCollapsed && clientY > f.headerRect.bottom - 7) {
+                            hoveringFolder = f;
+                            isFolderHeaderEdge = 'after';
+                            break;
+                        } else {
+                            hoveringFolder = f;
+                            isFolderHeaderEdge = null;
+                            break;
+                        }
+                    }
+                }
+
+                // Check empty open folder body
+                if (!f.isCollapsed && f.emptyElement) {
+                    const eRect = f.emptyElement.getBoundingClientRect();
+                    if (clientX >= eRect.left && clientX <= eRect.right && clientY >= eRect.top && clientY <= eRect.bottom) {
+                        hoveringFolder = f;
+                        isFolderHeaderEdge = null;
+                        break;
+                    }
+                }
+            }
+
+            if (hoveringFolder && !isFolderHeaderEdge) {
+                if (currentHoverFolder !== hoveringFolder.element) {
+                    if (currentHoverFolder) currentHoverFolder.classList.remove('drop-target-inside');
+                    currentHoverFolder = hoveringFolder.element;
+                    currentHoverFolder.classList.add('drop-target-inside');
+                }
+
+                indicator.style.display = 'none';
+
+                // If folder is collapsed, auto-expand after 400ms
+                if (hoveringFolder.isCollapsed && !hoverExpandTimer) {
+                    hoverExpandTimer = setTimeout(() => {
+                        if (activeDrag && currentHoverFolder === hoveringFolder.element) {
+                            toggleFolderCollapse(hoveringFolder.element, hoveringFolder.id, false);
+                            hoveringFolder.isCollapsed = false;
+                            setTimeout(() => {
+                                if (activeDrag) {
+                                    cachedTargets = cacheDropTargets(activeDrag.type, activeDrag.element);
+                                }
+                            }, 240);
+                            hoverExpandTimer = null;
+                        }
+                    }, 400);
+                }
+
+                lastDropTarget = {
+                    type: 'folder_inside',
+                    folderId: hoveringFolder.id,
+                    element: hoveringFolder.element
+                };
+                return;
+            }
+
+            // Not dropping inside a folder
+            if (currentHoverFolder) {
+                currentHoverFolder.classList.remove('drop-target-inside');
+                currentHoverFolder = null;
+            }
+            if (hoverExpandTimer) {
+                clearTimeout(hoverExpandTimer);
+                hoverExpandTimer = null;
+            }
+
+            // If it was the top or bottom edge of a folder header:
+            if (hoveringFolder && isFolderHeaderEdge) {
+                const targetY = isFolderHeaderEdge === 'before' ? hoveringFolder.headerRect.top : hoveringFolder.headerRect.bottom;
+                indicator.style.display = 'block';
+                indicator.style.top = `${Math.round(targetY - 1.5)}px`;
+                indicator.style.left = `${Math.round(hoveringFolder.rect.left + 2)}px`;
+                indicator.style.width = `${Math.round(hoveringFolder.rect.width - 4)}px`;
+
+                lastDropTarget = {
+                    type: 'root',
+                    position: isFolderHeaderEdge,
+                    targetKey: hoveringFolder.key,
+                    targetY: targetY
+                };
+                return;
+            }
+
+            // C) Check root targets (between / above / below folders and root accounts)
+            const rootTargets = cachedTargets.rootTargets;
+            if (rootTargets.length > 0) {
+                let bestRoot = null;
+                let bestDist = Infinity;
+
+                for (const rt of rootTargets) {
+                    const distTop = Math.abs(clientY - rt.rect.top);
+                    const distBottom = Math.abs(clientY - rt.rect.bottom);
+                    const minDist = Math.min(distTop, distBottom);
+
+                    if (minDist < bestDist) {
+                        bestDist = minDist;
+                        const isBefore = distTop <= distBottom;
+                        bestRoot = {
+                            target: rt,
+                            position: isBefore ? 'before' : 'after',
+                            targetY: isBefore ? rt.rect.top : rt.rect.bottom
+                        };
+                    }
+                }
+
+                if (bestRoot) {
+                    indicator.style.display = 'block';
+                    indicator.style.top = `${Math.round(bestRoot.targetY - 1.5)}px`;
+                    indicator.style.left = `${Math.round(bestRoot.target.rect.left + 2)}px`;
+                    indicator.style.width = `${Math.round(bestRoot.target.rect.width - 4)}px`;
+
+                    lastDropTarget = {
+                        type: 'root',
+                        position: bestRoot.position,
+                        targetKey: bestRoot.target.key,
+                        targetY: bestRoot.targetY
+                    };
+                    return;
+                }
+            }
+
+            // D) Empty list or bottom of list
+            if (cachedTargets.listRect) {
+                const lr = cachedTargets.listRect;
+                indicator.style.display = 'block';
+                indicator.style.top = `${Math.round(lr.bottom - 8)}px`;
+                indicator.style.left = `${Math.round(lr.left + 8)}px`;
+                indicator.style.width = `${Math.round(lr.width - 16)}px`;
+
+                lastDropTarget = {
+                    type: 'root_end',
+                    targetY: lr.bottom - 8
+                };
+                return;
+            }
+
+            indicator.style.display = 'none';
+            lastDropTarget = null;
+        }
+    }
+
+    async function finishDragEngine() {
+        if (!activeDrag) return;
+
+        const drag = activeDrag;
+        const target = lastDropTarget;
+        const ghost = dragGhostProxy;
+
+        activeDrag = null;
+        dragGhostProxy = null;
+        pendingDrag = null;
+
+        clearDragEffects();
+
+        if (target) {
+            if (drag.type === 'folder') {
+                const sourceFolderId = drag.id;
+                const sourceKey = 'folder:' + sourceFolderId;
+
+                getCleanRootOrder();
+
+                if (target.type === 'root') {
+                    const targetKey = target.targetKey;
+                    if (sourceKey !== targetKey) {
+                        const sIdx = rootOrder.indexOf(sourceKey);
+                        if (sIdx !== -1) {
+                            rootOrder.splice(sIdx, 1);
+                        }
+                        const tIdx = rootOrder.indexOf(targetKey);
+                        if (tIdx !== -1) {
+                            const insertIdx = target.position === 'before' ? tIdx : tIdx + 1;
+                            rootOrder.splice(insertIdx, 0, sourceKey);
+                        } else {
+                            rootOrder.push(sourceKey);
+                        }
+                    }
+                } else if (target.type === 'root_end') {
+                    const sIdx = rootOrder.indexOf(sourceKey);
+                    if (sIdx !== -1) {
+                        rootOrder.splice(sIdx, 1);
+                    }
+                    rootOrder.push(sourceKey);
+                }
+
+                // Keep folders array in same relative order as rootOrder
+                const folderKeysInRoot = rootOrder.filter(k => k.startsWith('folder:')).map(k => k.slice(7));
+                folders.sort((a, b) => {
+                    const idxA = folderKeysInRoot.indexOf(a.id);
+                    const idxB = folderKeysInRoot.indexOf(b.id);
+                    return (idxA === -1 ? 9999 : idxA) - (idxB === -1 ? 9999 : idxB);
+                });
+
+                const foldersToSave = folders.map(({ isEditing, menuOpen, ...rest }) => rest);
+                await new Promise(r => chrome.storage.local.set({
+                    discordFolders: foldersToSave,
+                    discordRootOrder: rootOrder
+                }, r));
+                renderAccounts();
+            } else if (drag.type === 'account') {
+                const sourceToken = drag.token;
+                const sIdx = accounts.findIndex(a => a.token === sourceToken);
+                if (sIdx !== -1) {
+                    const sourceAcc = accounts[sIdx];
+                    const sourceKey = 'account:' + sourceToken;
+
+                    if (target.type === 'folder_inside') {
+                        sourceAcc.folderId = target.folderId;
+                        rootOrder = rootOrder.filter(k => k !== sourceKey);
+                        const [movedAcc] = accounts.splice(sIdx, 1);
+                        let lastFolderAccIdx = -1;
+                        for (let i = 0; i < accounts.length; i++) {
+                            if (accounts[i].folderId === target.folderId) {
+                                lastFolderAccIdx = i;
+                            }
+                        }
+                        if (lastFolderAccIdx !== -1) {
+                            accounts.splice(lastFolderAccIdx + 1, 0, movedAcc);
+                        } else {
+                            accounts.push(movedAcc);
+                        }
+                    } else if (target.type === 'nested_account') {
+                        sourceAcc.folderId = target.folderId;
+                        rootOrder = rootOrder.filter(k => k !== sourceKey);
+                        const [movedAcc] = accounts.splice(sIdx, 1);
+                        const tIdx = accounts.findIndex(a => a.token === target.targetToken);
+                        if (tIdx !== -1) {
+                            const insertIdx = target.position === 'before' ? tIdx : tIdx + 1;
+                            accounts.splice(Math.max(0, insertIdx), 0, movedAcc);
+                        } else {
+                            accounts.push(movedAcc);
+                        }
+                    } else if (target.type === 'root') {
+                        sourceAcc.folderId = null;
+                        getCleanRootOrder();
+                        const currRootIdx = rootOrder.indexOf(sourceKey);
+                        if (currRootIdx !== -1) {
+                            rootOrder.splice(currRootIdx, 1);
+                        }
+                        const tRootIdx = rootOrder.indexOf(target.targetKey);
+                        if (tRootIdx !== -1) {
+                            const insertIdx = target.position === 'before' ? tRootIdx : tRootIdx + 1;
+                            rootOrder.splice(insertIdx, 0, sourceKey);
+                        } else {
+                            rootOrder.push(sourceKey);
+                        }
+                    } else if (target.type === 'root_end') {
+                        sourceAcc.folderId = null;
+                        getCleanRootOrder();
+                        const currRootIdx = rootOrder.indexOf(sourceKey);
+                        if (currRootIdx !== -1) {
+                            rootOrder.splice(currRootIdx, 1);
+                        }
+                        rootOrder.push(sourceKey);
+                    }
+
+                    getCleanRootOrder();
+                    await new Promise(r => chrome.storage.local.set({
+                        discordAccounts: accounts,
+                        discordRootOrder: rootOrder
+                    }, r));
+                    renderAccounts();
+                }
+            }
+        }
+
+        // Animate ghost out
+        if (ghost) {
+            const anim = ghost.animate([
+                { opacity: 0.95 },
+                { opacity: 0 }
+            ], {
+                duration: 120,
+                easing: 'cubic-bezier(0.16, 1, 0.3, 1)'
+            });
+            anim.onfinish = () => {
+                if (ghost.parentNode) ghost.remove();
+            };
+        }
+    }
+
+    function cancelDragEngine() {
+        if (!activeDrag && !pendingDrag) return;
+        const ghost = dragGhostProxy;
+
+        if (activeDrag && ghost) {
+            const origin = activeDrag.originRect;
+            const anim = ghost.animate([
+                { transform: ghost.style.transform, opacity: 0.95 },
+                { transform: `translate3d(${origin.left}px, ${origin.top}px, 0) scale(1)`, opacity: 0 }
+            ], {
+                duration: 160,
+                easing: 'cubic-bezier(0.16, 1, 0.3, 1)'
+            });
+            anim.onfinish = () => {
+                if (ghost.parentNode) ghost.remove();
+            };
+        } else if (ghost && ghost.parentNode) {
+            ghost.remove();
+        }
+
+        activeDrag = null;
+        dragGhostProxy = null;
+        pendingDrag = null;
+        lastDropTarget = null;
+        clearDragEffects();
+    }
+
+    function initDragAndDropEngine() {
+        if (!listContainer) return;
+
+        listContainer.addEventListener('pointerdown', (e) => {
+            if (searchQuery && searchQuery.trim() !== '') return;
+            if (e.button !== 0) return;
+
+            const handle = e.target.closest('.drag-handle');
+            if (!handle) return;
+
+            const type = handle.dataset.dragHandle;
+            if (!type) return;
+
+            const element = type === 'folder'
+                ? handle.closest('.folder-container')
+                : handle.closest('.account-item');
+            if (!element) return;
+
+            // Close all folder and account option menus
+            folders.forEach(f => { delete f.menuOpen; });
+            document.querySelectorAll('.folder-actions.open, .folder-menu.open, .account-menu-wrapper.open').forEach(el => {
+                el.classList.remove('open', 'open-up');
+            });
+
+            pendingDrag = {
+                type,
+                element,
+                id: handle.dataset.id || element.dataset.id,
+                token: handle.dataset.token || element.dataset.token,
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY
+            };
+
+            try {
+                handle.setPointerCapture(e.pointerId);
+            } catch (err) {}
+
+            e.preventDefault();
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (pendingDrag && !activeDrag) {
+                if (e.pointerId !== pendingDrag.pointerId) return;
+                const dist = Math.hypot(e.clientX - pendingDrag.startX, e.clientY - pendingDrag.startY);
+                if (dist >= 5) {
+                    const p = pendingDrag;
+                    pendingDrag = null;
+                    startDragEngine(p, e.clientX, e.clientY);
+                }
+            } else if (activeDrag) {
+                if (e.pointerId !== activeDrag.pointerId) return;
+                updateDragEngine(e.clientX, e.clientY);
+            }
+        });
+
+        window.addEventListener('pointerup', (e) => {
+            if (pendingDrag && e.pointerId === pendingDrag.pointerId) {
+                pendingDrag = null;
+            } else if (activeDrag && e.pointerId === activeDrag.pointerId) {
+                finishDragEngine();
+            }
+        });
+
+        window.addEventListener('pointercancel', (e) => {
+            if (pendingDrag && e.pointerId === pendingDrag.pointerId) {
+                pendingDrag = null;
+            } else if (activeDrag && e.pointerId === activeDrag.pointerId) {
+                cancelDragEngine();
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            if (activeDrag || pendingDrag) {
+                cancelDragEngine();
+            }
+        });
+    }
+
+    // Register Escape key cancellation for drag and drop & modal closing
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            if (activeDrag) {
+                e.stopPropagation();
+                cancelDragEngine();
+                return;
+            }
             closeUpdateTokenModal();
             closeAccountDetailsModal();
             hideBadgesPopover(0);
@@ -4565,5 +4908,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    initDragAndDropEngine();
     loadInitialData();
 });

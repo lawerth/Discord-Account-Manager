@@ -725,32 +725,34 @@ body {
     position: relative;
     border: 1px solid var(--border-subtle);
     flex-shrink: 0;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .account-list.initial-load .account-item {
-    animation: fadeIn 0.4s ease forwards;
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(6px);
 }
 
 .account-item:nth-child(1) {
-    animation-delay: 0.05s;
+    animation-delay: 0.03s;
 }
 
 .account-item:nth-child(2) {
-    animation-delay: 0.1s;
+    animation-delay: 0.06s;
 }
 
 .account-item:nth-child(3) {
-    animation-delay: 0.15s;
+    animation-delay: 0.09s;
 }
 
 .account-item:nth-child(4) {
-    animation-delay: 0.2s;
+    animation-delay: 0.12s;
 }
 
 .account-item:nth-child(5) {
-    animation-delay: 0.25s;
+    animation-delay: 0.15s;
 }
 
 .account-item:hover {
@@ -2378,10 +2380,6 @@ input[type="password"]:focus {
     z-index: 100;
 }
 
-.folder-container:not(.collapsed) .folder-content:has(.account-menu-wrapper.open) {
-    overflow: visible;
-}
-
 .folder-container:has(.account-menu-wrapper.open) {
     z-index: 100;
 }
@@ -2389,6 +2387,8 @@ input[type="password"]:focus {
 .account-menu-wrapper {
     position: relative;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
 }
 
 .account-menu-btn {
@@ -2680,20 +2680,38 @@ input[type="password"]:focus {
 }
 
 
+
+
+/* Drag and Drop System */
 .drag-handle {
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    margin-right: 12px;
     cursor: grab;
-    opacity: 0.3;
-    transition: opacity 0.2s, color 0.2s;
+    opacity: 0.35;
+    transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+    user-select: none;
+    -webkit-user-drag: none;
+    padding: 3px;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+
+.account-item .drag-handle {
+    margin-right: 8px;
+    margin-left: -2px;
+}
+
+.folder-header .drag-handle {
+    margin-right: 2px;
+    margin-left: -4px;
 }
 
 .drag-handle:hover {
     opacity: 1;
     color: var(--text-normal);
+    background-color: var(--bg-modifier-hover);
 }
 
 .drag-handle:active {
@@ -2701,11 +2719,80 @@ input[type="password"]:focus {
 }
 
 .list-container.is-searching .drag-handle {
-    display: none;
+    display: none !important;
 }
 
 .list-container.is-searching .folder-header {
     cursor: default;
+}
+
+body.dragging-active {
+    cursor: grabbing !important;
+    user-select: none !important;
+}
+
+body.dragging-active * {
+    user-select: none !important;
+}
+
+.account-item.is-dragged,
+.folder-container.is-dragged {
+    opacity: 0.3 !important;
+    filter: grayscale(0.3);
+    pointer-events: none !important;
+}
+
+/* Glow on folder when account is hovered directly over it */
+.folder-container.drop-target-inside {
+    border-color: #5865F2 !important;
+    box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.4), 0 0 16px rgba(88, 101, 242, 0.25) !important;
+    background-color: rgba(88, 101, 242, 0.08) !important;
+}
+
+/* Drop indicator insertion line */
+#dropIndicatorLine {
+    position: fixed;
+    height: 3px;
+    background: #5865F2;
+    border-radius: 3px;
+    box-shadow: 0 0 8px rgba(88, 101, 242, 0.8), 0 0 2px #5865F2;
+    pointer-events: none;
+    z-index: 999999;
+    display: none;
+    will-change: top, left, width;
+    transition: none !important;
+}
+
+#dropIndicatorLine::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -2.5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #5865F2;
+    box-shadow: 0 0 8px rgba(88, 101, 242, 0.9);
+}
+
+/* Drag Ghost / Proxy Card */
+#dragGhostProxy {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999999;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(88, 101, 242, 0.5);
+    border-radius: 12px;
+    will-change: transform;
+    opacity: 0.96;
+    margin: 0;
+    transition: none !important;
+    animation: none !important;
+}
+
+#dragGhostProxy,
+#dragGhostProxy * {
+    transition: none !important;
+    animation: none !important;
 }
 
 @keyframes fadeIn {
@@ -2760,10 +2847,11 @@ input[type="password"]:focus {
     color: var(--text-muted);
     display: flex;
     align-items: center;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.folder-container.collapsed .folder-icon {
+.folder-container.collapsed .folder-icon,
+.folder-container.is-collapsing .folder-icon {
     transform: rotate(-90deg);
 }
 
@@ -2784,20 +2872,12 @@ input[type="password"]:focus {
     flex-direction: column;
     gap: 4px;
     padding: 6px;
-    overflow: hidden;
-    max-height: 10000px;
-    opacity: 1;
-    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
-                opacity 0.3s ease, 
-                padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box;
+    width: 100%;
 }
 
-.folder-container.collapsed .folder-content {
-    max-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    opacity: 0;
-    pointer-events: none;
+.folder-container.collapsed:not(.is-collapsing) .folder-content {
+    display: none;
 }
 
 .folder-actions {
@@ -2835,10 +2915,16 @@ input[type="password"]:focus {
     z-index: 250;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
+    transform-origin: top right;
 }
 
 .folder-menu.open {
     display: block;
+    animation: accountMenuIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.folder-menu.open.open-up {
+    animation: accountMenuInUp 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .folder-menu-edit {
@@ -2907,10 +2993,7 @@ input[type="password"]:focus {
     flex-shrink: 0;
 }
 
-.folder-container.drag-over {
-    border-color: var(--brand-experiment);
-    background-color: rgba(88, 101, 242, 0.05);
-}
+
 
 .folder-name-input {
     background: var(--input-bg);
@@ -3116,60 +3199,7 @@ input[type="password"]:focus {
     flex-shrink: 0;
 }
 
-body.dragging-active,
-body.dragging-active * {
-    cursor: grabbing !important;
-}
 
-body.dragging-active .account-item:hover {
-    background-color: var(--bg-secondary) !important;
-    border-color: var(--border-subtle) !important;
-    transform: none !important;
-    box-shadow: none !important;
-}
-
-body.dragging-active .folder-container:hover {
-    transform: none !important;
-    box-shadow: none !important;
-}
-
-body.dragging-active .folder-header:hover {
-    background-color: transparent !important;
-    transform: none !important;
-    box-shadow: none !important;
-}
-
-body.dragging-active .folder-header:hover .folder-actions:not(.open) {
-    opacity: 0 !important;
-    pointer-events: none !important;
-}
-
-body.dragging-active .account-item *,
-body.dragging-active .folder-header * {
-    pointer-events: none !important;
-}
-
-
-.drag-proxy {
-    position: fixed;
-    pointer-events: none;
-    z-index: 99999;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88, 101, 242, 0.5);
-    border-radius: 10px;
-    will-change: transform, opacity;
-    left: 0;
-    top: 0;
-    margin: 0;
-}
-
-.account-item.dragging,
-.folder-container.dragging,
-.account-item.dragging *,
-.folder-container.dragging * {
-    opacity: 0.25 !important;
-    filter: grayscale(0.5);
-    pointer-events: none !important;
-}
 
 
 .account-details-card {

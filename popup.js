@@ -659,7 +659,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // Update state in storage
         if (targetCollapsed) {
             if (!collapsedFolders.includes(folderId)) {
                 saveCollapsedFolders([...collapsedFolders, folderId]);
@@ -670,7 +669,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        // Cancel any active animation on this folder
         if (folderContainer._anim) {
             try {
                 folderContainer._anim.cancel();
@@ -685,7 +683,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         if (targetCollapsed) {
-            // Collapsing
             const currentHeight = folderContent.getBoundingClientRect().height || folderContent.offsetHeight;
             if (currentHeight <= 0) {
                 folderContainer.classList.remove('animating');
@@ -718,7 +715,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             };
         } else {
-            // Expanding
             folderContainer.classList.add('animating');
             folderContainer.classList.remove('collapsed');
 
@@ -4129,9 +4125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             hideBadgesPopover(0);
         }
     });
-    // ==========================================
-    // MODERN ENTERPRISE DRAG & DROP SYSTEM
-    // ==========================================
+
     let dropIndicatorLine = null;
     let dragGhostProxy = null;
     let pendingDrag = null;
@@ -4181,7 +4175,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const folders = [];
         const nestedAccounts = [];
 
-        // Direct children of listContainer are root items: .folder-container OR .account-item
         for (const child of listContainer.children) {
             if (child === draggedElement) continue;
 
@@ -4208,7 +4201,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 rootTargets.push(folderInfo);
                 folders.push(folderInfo);
 
-                // If folder is open, cache its nested accounts
                 if (!isCollapsed && content) {
                     const accEls = Array.from(content.querySelectorAll('.account-item')).filter(el => el !== draggedElement);
                     for (const aEl of accEls) {
@@ -4305,10 +4297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const posY = clientY - activeDrag.offsetY;
         dragGhostProxy.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(1.02)`;
 
-        // Edge Auto-scrolling
         handleAutoScroll(clientY);
-
-        // Calculate Drop Target
         computeDropTarget(clientX, clientY);
     }
 
@@ -4351,7 +4340,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!cachedTargets || !activeDrag) return;
         const indicator = getOrCreateDropIndicator();
 
-        // SCENARIO 1: DRAGGING A FOLDER
         if (activeDrag.type === 'folder') {
             const rootTargets = cachedTargets.rootTargets;
             if (rootTargets.length === 0) {
@@ -4395,9 +4383,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // SCENARIO 2: DRAGGING AN ACCOUNT
         if (activeDrag.type === 'account') {
-            // A) Check if hovering over nested accounts inside an OPEN folder
             let bestNested = null;
             let bestNestedDist = Infinity;
 
@@ -4442,12 +4428,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            // B) Check if hovering over folder headers or empty open folders
             let hoveringFolder = null;
-            let isFolderHeaderEdge = null; // 'before' | 'after' | null
+            let isFolderHeaderEdge = null;
 
             for (const f of cachedTargets.folders) {
-                // Check folder header
                 if (clientX >= f.headerRect.left && clientX <= f.headerRect.right) {
                     if (clientY >= f.headerRect.top && clientY <= f.headerRect.bottom) {
                         if (clientY < f.headerRect.top + 7) {
@@ -4466,7 +4450,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-                // Check empty open folder body
                 if (!f.isCollapsed && f.emptyElement) {
                     const eRect = f.emptyElement.getBoundingClientRect();
                     if (clientX >= eRect.left && clientX <= eRect.right && clientY >= eRect.top && clientY <= eRect.bottom) {
@@ -4486,7 +4469,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 indicator.style.display = 'none';
 
-                // If folder is collapsed, auto-expand after 400ms
                 if (hoveringFolder.isCollapsed && !hoverExpandTimer) {
                     hoverExpandTimer = setTimeout(() => {
                         if (activeDrag && currentHoverFolder === hoveringFolder.element) {
@@ -4510,7 +4492,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            // Not dropping inside a folder
             if (currentHoverFolder) {
                 currentHoverFolder.classList.remove('drop-target-inside');
                 currentHoverFolder = null;
@@ -4520,7 +4501,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 hoverExpandTimer = null;
             }
 
-            // If it was the top or bottom edge of a folder header:
             if (hoveringFolder && isFolderHeaderEdge) {
                 const targetY = isFolderHeaderEdge === 'before' ? hoveringFolder.headerRect.top : hoveringFolder.headerRect.bottom;
                 indicator.style.display = 'block';
@@ -4537,7 +4517,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            // C) Check root targets (between / above / below folders and root accounts)
             const rootTargets = cachedTargets.rootTargets;
             if (rootTargets.length > 0) {
                 let bestRoot = null;
@@ -4575,7 +4554,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
 
-            // D) Empty list or bottom of list
             if (cachedTargets.listRect) {
                 const lr = cachedTargets.listRect;
                 indicator.style.display = 'block';
@@ -4638,7 +4616,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     rootOrder.push(sourceKey);
                 }
 
-                // Keep folders array in same relative order as rootOrder
                 const folderKeysInRoot = rootOrder.filter(k => k.startsWith('folder:')).map(k => k.slice(7));
                 folders.sort((a, b) => {
                     const idxA = folderKeysInRoot.indexOf(a.id);
@@ -4719,7 +4696,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        // Animate ghost out
         if (ghost) {
             const anim = ghost.animate([
                 { opacity: 0.95 },
@@ -4779,7 +4755,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 : handle.closest('.account-item');
             if (!element) return;
 
-            // Close all folder and account option menus
             folders.forEach(f => { delete f.menuOpen; });
             document.querySelectorAll('.folder-actions.open, .folder-menu.open, .account-menu-wrapper.open').forEach(el => {
                 el.classList.remove('open', 'open-up');
@@ -4840,7 +4815,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Register Escape key cancellation for drag and drop & modal closing
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             if (activeDrag) {

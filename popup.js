@@ -652,10 +652,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     function toggleFolderCollapse(folderContainer, folderId, forceState = null, immediate = false) {
         if (!folderContainer) return;
         const folderContent = folderContainer.querySelector('.folder-content');
-        const isCurrentlyCollapsed = folderContainer.classList.contains('collapsed') && !folderContainer.classList.contains('is-collapsing');
+        const isCurrentlyCollapsed = folderContainer.classList.contains('collapsed');
         const targetCollapsed = forceState !== null ? forceState : !isCurrentlyCollapsed;
 
-        if (targetCollapsed === isCurrentlyCollapsed && !folderContainer._animating) {
+        if (targetCollapsed === isCurrentlyCollapsed && !folderContainer._anim) {
             return;
         }
 
@@ -670,125 +670,77 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
+        // Cancel any active animation on this folder
+        if (folderContainer._anim) {
+            try {
+                folderContainer._anim.cancel();
+            } catch (err) {}
+            folderContainer._anim = null;
+        }
+
         if (immediate || !folderContent) {
-            if (folderContainer._animCleanup) {
-                folderContainer._animCleanup();
-            }
-            folderContainer.classList.remove('is-collapsing');
+            folderContainer.classList.remove('animating');
             folderContainer.classList.toggle('collapsed', targetCollapsed);
-            if (folderContent) {
-                folderContent.style.display = '';
-                folderContent.style.height = '';
-                folderContent.style.opacity = '';
-                folderContent.style.overflow = '';
-                folderContent.style.transition = '';
-            }
             return;
         }
 
-        // Cancel any in-flight animation on this folder
-        if (folderContainer._animCleanup) {
-            folderContainer._animCleanup();
-        }
-
-        folderContainer._animating = true;
-
         if (targetCollapsed) {
             // Collapsing
-            const currentRect = folderContent.getBoundingClientRect();
-            const startHeight = currentRect.height > 0 ? currentRect.height : folderContent.scrollHeight;
-
-            folderContainer.classList.add('collapsed');
-            folderContainer.classList.add('is-collapsing');
-
-            folderContent.style.display = 'flex';
-            folderContent.style.overflow = 'hidden';
-            folderContent.style.height = `${startHeight}px`;
-            folderContent.style.opacity = '1';
-            folderContent.style.transition = 'none';
-
-            // Force reflow
-            void folderContent.offsetHeight;
-
-            folderContent.style.transition = 'height 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.16s ease';
-            folderContent.style.height = '0px';
-            folderContent.style.opacity = '0';
-
-            const finish = () => {
-                if (!folderContainer._animating) return;
-                folderContainer._animating = false;
-                folderContainer._animCleanup = null;
-                folderContent.removeEventListener('transitionend', onEnd);
-                clearTimeout(fallbackTimer);
-
-                folderContainer.classList.remove('is-collapsing');
+            const currentHeight = folderContent.getBoundingClientRect().height || folderContent.offsetHeight;
+            if (currentHeight <= 0) {
+                folderContainer.classList.remove('animating');
                 folderContainer.classList.add('collapsed');
+                return;
+            }
 
-                folderContent.style.display = '';
-                folderContent.style.height = '';
-                folderContent.style.opacity = '';
-                folderContent.style.overflow = '';
-                folderContent.style.transition = '';
-            };
+            folderContainer.classList.add('animating');
+            folderContainer.classList.add('collapsed');
 
-            const onEnd = (e) => {
-                if (e.target === folderContent && e.propertyName === 'height') {
-                    finish();
+            const computed = window.getComputedStyle(folderContent);
+            const startPadTop = computed.paddingTop || '6px';
+            const startPadBottom = computed.paddingBottom || '6px';
+
+            const anim = folderContent.animate([
+                { height: `${currentHeight}px`, paddingTop: startPadTop, paddingBottom: startPadBottom, overflow: 'hidden' },
+                { height: '0px', paddingTop: '0px', paddingBottom: '0px', overflow: 'hidden' }
+            ], {
+                duration: 180,
+                easing: 'cubic-bezier(0.2, 0, 0, 1)'
+            });
+
+            folderContainer._anim = anim;
+
+            anim.onfinish = () => {
+                if (folderContainer._anim === anim) {
+                    folderContainer._anim = null;
+                    folderContainer.classList.remove('animating');
+                    folderContainer.classList.add('collapsed');
                 }
             };
-
-            const fallbackTimer = setTimeout(finish, 240);
-            folderContent.addEventListener('transitionend', onEnd);
-            folderContainer._animCleanup = finish;
         } else {
             // Expanding
+            folderContainer.classList.add('animating');
             folderContainer.classList.remove('collapsed');
-            folderContainer.classList.remove('is-collapsing');
 
-            const currentRect = folderContent.getBoundingClientRect();
-            const currentHeight = currentRect.height > 0 ? currentRect.height : 0;
+            const targetHeight = folderContent.scrollHeight || folderContent.offsetHeight;
+            const currentHeight = Math.max(0, folderContent.getBoundingClientRect().height);
 
-            folderContent.style.display = 'flex';
-            folderContent.style.overflow = 'hidden';
-            folderContent.style.height = 'auto';
-            folderContent.style.opacity = '1';
-            folderContent.style.transition = 'none';
+            const anim = folderContent.animate([
+                { height: `${currentHeight}px`, paddingTop: currentHeight > 0 ? '6px' : '0px', paddingBottom: currentHeight > 0 ? '6px' : '0px', overflow: 'hidden' },
+                { height: `${targetHeight}px`, paddingTop: '6px', paddingBottom: '6px', overflow: 'hidden' }
+            ], {
+                duration: 200,
+                easing: 'cubic-bezier(0.16, 1, 0.3, 1)'
+            });
 
-            const targetHeight = folderContent.scrollHeight;
+            folderContainer._anim = anim;
 
-            folderContent.style.height = `${currentHeight}px`;
-            folderContent.style.opacity = currentHeight > 0 ? '1' : '0';
-
-            // Force reflow
-            void folderContent.offsetHeight;
-
-            folderContent.style.transition = 'height 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease';
-            folderContent.style.height = `${targetHeight}px`;
-            folderContent.style.opacity = '1';
-
-            const finish = () => {
-                if (!folderContainer._animating) return;
-                folderContainer._animating = false;
-                folderContainer._animCleanup = null;
-                folderContent.removeEventListener('transitionend', onEnd);
-                clearTimeout(fallbackTimer);
-
-                folderContent.style.display = '';
-                folderContent.style.height = '';
-                folderContent.style.opacity = '';
-                folderContent.style.overflow = '';
-                folderContent.style.transition = '';
-            };
-
-            const onEnd = (e) => {
-                if (e.target === folderContent && e.propertyName === 'height') {
-                    finish();
+            anim.onfinish = () => {
+                if (folderContainer._anim === anim) {
+                    folderContainer._anim = null;
+                    folderContainer.classList.remove('animating');
                 }
             };
-
-            const fallbackTimer = setTimeout(finish, 260);
-            folderContent.addEventListener('transitionend', onEnd);
-            folderContainer._animCleanup = finish;
         }
     }
 

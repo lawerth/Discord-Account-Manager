@@ -2850,8 +2850,7 @@ body.dragging-active * {
     transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.folder-container.collapsed .folder-icon,
-.folder-container.is-collapsing .folder-icon {
+.folder-container.collapsed .folder-icon {
     transform: rotate(-90deg);
 }
 
@@ -2876,7 +2875,11 @@ body.dragging-active * {
     width: 100%;
 }
 
-.folder-container.collapsed:not(.is-collapsing) .folder-content {
+.folder-container.animating {
+    overflow: hidden !important;
+}
+
+.folder-container.collapsed:not(.animating) .folder-content {
     display: none;
 }
 

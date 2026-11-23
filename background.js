@@ -60,17 +60,46 @@ async function getPendingOfficialLogin() {
 
 // Clear the Discord web session so https://discord.com/login shows the
 // login form instead of instantly redirecting back to the account that
-// is already signed in. Discord keeps its auth token in localStorage
-// (not only in cookies), so both have to go:
-//   1. all cookies for discord.com / discordapp.com, and
-//   2. the stored token (localStorage/sessionStorage) in any open
-//      Discord tab (localStorage is origin-scoped and cannot be
-//      reached from the extension pages without a page context).
-// content.js repeats step 2 on /login as a safety net for the tab
-// that gets opened next, in case no Discord tab was open yet.
-async function clearDiscordWebSession() {
-    // 1. Cookies
-    if (chrome.cookies && typeof chrome.cookies.getAll === 'function') {
+// is already signed in.
+//
+// Discord's auth token lives in localStorage (origin-scoped, and it
+// survives closing the tab), not in a cookie, so clearing cookies
+// alone does NOT log the web session out. All of the following are
+// therefore needed, and they must run BEFORE the login tab is opened:
+//   1. An origin-level website-data wipe (chrome.browsingData) for
+//      discord.com/www + discordapp.com/www. This is the reliable
+//      step: it removes cookies and localStorage for the origin even
+//      when no Discord tab is open (the old tab-based approach missed
+//      exactly that case, so the stored token survived and /login
+//      auto-signed in the previous account again).
+//   2. Manual cookie removal as a belt-and-braces pass (domain cookies
+//      are not always covered by a single getAll/remove call), with a
+//      verify-and-retry so a cookie that survives the first pass is
+//      not silently left behind.
+//   3. localStorage/sessionStorage wipe in any open Discord tab, as
+//      an in-page backstop. Tabs are enumerated with query({}) and
+//      filtered by URL here instead of a tabs.query() url match
+//      pattern, because `https://*.discord.com/*` does not reliably
+//      match the bare `https://discord.com/*` origin.
+// content.js repeats step 3 on /login as a final safety net, but the
+// origin wipe in step 1 is what actually guarantees the login page
+// loads logged out (the content-script check is async and can race
+// Discord's own scripts).
+const DISCORD_ORIGINS = [
+    'https://discord.com',
+    'https://www.discord.com',
+    'https://discordapp.com',
+    'https://www.discordapp.com'
+];
+const DISCORD_HOSTS = ['discord.com', 'www.discord.com', 'discordapp.com', 'www.discordapp.com'];
+
+async function removeAllDiscordCookies() {
+    if (!chrome.cookies || typeof chrome.cookies.getAll !== 'function') return 0;
+    let removed = 0;
+    // Two passes: remove everything found, then verify and retry any
+    // cookie that is still there (e.g. a domain cookie whose remove
+    // call needs the exact host it was set for).
+    for (let pass = 0; pass < 2; pass++) {
         const seen = new Set();
         const cookies = [];
         for (const domain of ['discord.com', '.discord.com', 'discordapp.com', '.discordapp.com']) {
@@ -79,46 +108,86 @@ async function clearDiscordWebSession() {
                 if (Array.isArray(found)) cookies.push(...found);
             } catch (e) { }
         }
-        try {
-            const found = await chrome.cookies.getAll({ url: 'https://discord.com/' });
-            if (Array.isArray(found)) cookies.push(...found);
-        } catch (e) { }
+        for (const host of DISCORD_HOSTS) {
+            try {
+                const found = await chrome.cookies.getAll({ url: `https://${host}/` });
+                if (Array.isArray(found)) cookies.push(...found);
+            } catch (e) { }
+        }
+        if (cookies.length === 0) break;
         for (const cookie of cookies) {
             if (!cookie || !cookie.name) continue;
             const host = String(cookie.domain || 'discord.com').replace(/^\./, '');
-            const key = `${cookie.name}|${cookie.domain}|${cookie.path || ''}|${cookie.storeId || ''}`;
+            const path = cookie.path || '/';
+            const key = `${cookie.name}|${cookie.domain}|${path}|${cookie.storeId || ''}`;
             if (seen.has(key)) continue;
             seen.add(key);
-            try {
-                await chrome.cookies.remove({
-                    url: `https://${host}${cookie.path || '/'}`,
-                    name: cookie.name,
-                    storeId: cookie.storeId
-                });
-            } catch (e) { }
+            // Try the cookie's own domain first, then each known host:
+            // remove() only deletes a cookie when the URL's host matches
+            // the cookie's domain, and a failed attempt returns null.
+            const urls = [`https://${host}${path}`, ...DISCORD_HOSTS.map(h => `https://${h}${path}`)];
+            for (const url of urls) {
+                try {
+                    const result = await chrome.cookies.remove({ url, name: cookie.name, storeId: cookie.storeId });
+                    if (result) { removed++; break; }
+                } catch (e) { }
+            }
+        }
+    }
+    return removed;
+}
+
+async function clearDiscordWebSession() {
+    // 1. Origin-level wipe: cookies + localStorage (+ IndexedDB, where
+    //    Discord may keep session artifacts) for every Discord origin.
+    //    Works with no Discord tab open, which is the case the previous
+    //    implementation missed.
+    if (chrome.browsingData && typeof chrome.browsingData.remove === 'function') {
+        try {
+            await chrome.browsingData.remove(
+                { origins: DISCORD_ORIGINS },
+                { cookies: true, localStorage: true, indexedDB: true }
+            );
+        } catch (e) {
+            console.warn('[DAM] browsingData.remove failed, falling back to manual clear:', e);
         }
     }
 
-    // 2. Stored token in any open Discord tab
+    // 2. Manual cookie removal (verify + retry inside).
+    let removedCookies = 0;
     try {
-        const tabs = await chrome.tabs.query({
-            url: ['https://*.discord.com/*', 'https://*.discordapp.com/*']
-        });
+        removedCookies = await removeAllDiscordCookies();
+    } catch (e) {
+        console.warn('[DAM] manual cookie removal failed:', e);
+    }
+
+    // 3. In-page storage wipe for every open Discord tab. Query all
+    //    tabs and filter by URL manually (see note above).
+    let clearedTabs = 0;
+    try {
+        const tabs = await chrome.tabs.query({});
         for (const tab of tabs || []) {
-            if (!tab || typeof tab.id !== 'number') continue;
+            if (!tab || typeof tab.id !== 'number' || !tab.url) continue;
+            const isDiscord = DISCORD_HOSTS.some(host => tab.url.startsWith(`https://${host}/`));
+            if (!isDiscord) continue;
             try {
                 await chrome.scripting.executeScript({
                     target: { tabId: tab.id },
                     world: 'MAIN',
                     func: () => {
-                        try { window.localStorage.removeItem('token'); } catch (e) { }
-                        try { window.localStorage.removeItem('authToken'); } catch (e) { }
+                        try { window.localStorage.clear(); } catch (e) { }
                         try { window.sessionStorage.clear(); } catch (e) { }
                     }
                 });
+                clearedTabs++;
             } catch (e) { }
         }
-    } catch (e) { }
+    } catch (e) {
+        console.warn('[DAM] tab storage clear failed:', e);
+    }
+
+    console.log(`[DAM] Discord web session cleared (cookies removed: ${removedCookies}, tabs cleared: ${clearedTabs})`);
+    return { removedCookies, clearedTabs };
 }
 
 // "Add via Discord Login": remember that we are waiting for a fresh

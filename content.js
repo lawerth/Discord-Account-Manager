@@ -21,8 +21,11 @@ chrome.storage.local.get(['pendingOfficialLogin'], (res) => {
     }
 
     if (window.location.pathname.startsWith('/login')) {
-        try { window.localStorage.removeItem('token'); } catch (e) { }
-        try { window.localStorage.removeItem('authToken'); } catch (e) { }
+        // Safety net only: background.js already wiped this origin via
+        // chrome.browsingData before opening this tab. Clear everything
+        // (not just the `token` key) in case the stored auth lives under
+        // a different key in this Discord version.
+        try { window.localStorage.clear(); } catch (e) { }
         try { window.sessionStorage.clear(); } catch (e) { }
         return;
     }

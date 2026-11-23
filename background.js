@@ -25,6 +25,239 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ valid: false, error: 'exception', message: err ? err.message : 'Unknown error' });
         });
         return true;
+    } else if (message.type === 'START_OFFICIAL_LOGIN') {
+        startOfficialLogin().then(result => {
+            if (sendResponse) sendResponse(result);
+        }).catch(err => {
+            if (sendResponse) sendResponse({ success: false, error: err ? err.message : 'Unknown error' });
+        });
+        return true;
+    } else if (message.type === 'OFFICIAL_LOGIN_TOKEN') {
+        handleOfficialLoginToken(message.token).then(result => {
+            if (sendResponse) sendResponse(result);
+        }).catch(err => {
+            if (sendResponse) sendResponse({ success: false, error: err ? err.message : 'Unknown error' });
+        });
+        return true;
+    }
+});
+
+// How long an "add via official login" attempt stays valid. Manual login
+// (including 2FA) can take a while, so this is much longer than the
+// 30s window used for switching accounts via pendingLogin.
+const OFFICIAL_LOGIN_TTL = 15 * 60 * 1000;
+const DISCORD_LOGIN_URL = 'https://discord.com/login';
+
+async function getPendingOfficialLogin() {
+    const { pendingOfficialLogin } = await chrome.storage.local.get(['pendingOfficialLogin']);
+    if (!pendingOfficialLogin) return null;
+    if (Date.now() - (pendingOfficialLogin.timestamp || 0) > OFFICIAL_LOGIN_TTL) {
+        await chrome.storage.local.remove(['pendingOfficialLogin']);
+        return null;
+    }
+    return pendingOfficialLogin;
+}
+
+// Clear the Discord web session so https://discord.com/login shows the
+// login form instead of instantly redirecting back to the account that
+// is already signed in. Discord keeps its auth token in localStorage
+// (not only in cookies), so both have to go:
+//   1. all cookies for discord.com / discordapp.com, and
+//   2. the stored token (localStorage/sessionStorage) in any open
+//      Discord tab (localStorage is origin-scoped and cannot be
+//      reached from the extension pages without a page context).
+// content.js repeats step 2 on /login as a safety net for the tab
+// that gets opened next, in case no Discord tab was open yet.
+async function clearDiscordWebSession() {
+    // 1. Cookies
+    if (chrome.cookies && typeof chrome.cookies.getAll === 'function') {
+        const seen = new Set();
+        const cookies = [];
+        for (const domain of ['discord.com', '.discord.com', 'discordapp.com', '.discordapp.com']) {
+            try {
+                const found = await chrome.cookies.getAll({ domain });
+                if (Array.isArray(found)) cookies.push(...found);
+            } catch (e) { }
+        }
+        try {
+            const found = await chrome.cookies.getAll({ url: 'https://discord.com/' });
+            if (Array.isArray(found)) cookies.push(...found);
+        } catch (e) { }
+        for (const cookie of cookies) {
+            if (!cookie || !cookie.name) continue;
+            const host = String(cookie.domain || 'discord.com').replace(/^\./, '');
+            const key = `${cookie.name}|${cookie.domain}|${cookie.path || ''}|${cookie.storeId || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            try {
+                await chrome.cookies.remove({
+                    url: `https://${host}${cookie.path || '/'}`,
+                    name: cookie.name,
+                    storeId: cookie.storeId
+                });
+            } catch (e) { }
+        }
+    }
+
+    // 2. Stored token in any open Discord tab
+    try {
+        const tabs = await chrome.tabs.query({
+            url: ['https://*.discord.com/*', 'https://*.discordapp.com/*']
+        });
+        for (const tab of tabs || []) {
+            if (!tab || typeof tab.id !== 'number') continue;
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    world: 'MAIN',
+                    func: () => {
+                        try { window.localStorage.removeItem('token'); } catch (e) { }
+                        try { window.localStorage.removeItem('authToken'); } catch (e) { }
+                        try { window.sessionStorage.clear(); } catch (e) { }
+                    }
+                });
+            } catch (e) { }
+        }
+    } catch (e) { }
+}
+
+// "Add via Discord Login": remember that we are waiting for a fresh
+// login, clear the current web session, then redirect to Discord's
+// official login page. The new account is captured afterwards by
+// content.js (polling localStorage) / the tabs.onUpdated fallback
+// below once the user has signed in.
+async function startOfficialLogin() {
+    await chrome.storage.local.set({
+        pendingOfficialLogin: { timestamp: Date.now() }
+    });
+    await clearDiscordWebSession();
+    await chrome.tabs.create({ url: DISCORD_LOGIN_URL });
+    return { success: true };
+}
+
+function sanitizeOfficialToken(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const clean = raw.replace(/^"|"$/g, '').replace(/^'|'$/g, '').trim();
+    return (clean.length > 20 && !clean.includes(' ')) ? clean : null;
+}
+
+// Validate the token captured after a successful official login and
+// save it as an account (updating it in place if it was already saved,
+// mirroring the "Add Current" flow in popup.js). The pending flag is
+// claimed (removed) up front so the content.js and tabs.onUpdated
+// paths cannot both save the same login twice.
+async function handleOfficialLoginToken(rawToken) {
+    const token = sanitizeOfficialToken(rawToken);
+    if (!token) return { success: false, error: 'no_token' };
+
+    const pending = await getPendingOfficialLogin();
+    if (!pending) return { success: false, error: 'no_pending_login' };
+    await chrome.storage.local.remove(['pendingOfficialLogin']);
+
+    const result = await validateToken(token);
+    if (!result.valid || !result.data) {
+        return { success: false, error: 'invalid_token' };
+    }
+    const userData = result.data;
+
+    const { discordAccounts } = await chrome.storage.local.get(['discordAccounts']);
+    const accounts = Array.isArray(discordAccounts) ? [...discordAccounts] : [];
+    const existingIndex = accounts.findIndex(a => a.id === userData.id || a.token === token);
+
+    if (existingIndex !== -1) {
+        accounts[existingIndex] = {
+            ...accounts[existingIndex],
+            _profileChecked: true,
+            _profileVersion: 4,
+            username: userData.username,
+            global_name: userData.global_name,
+            avatar: userData.avatar,
+            email: userData.email || accounts[existingIndex].email || null,
+            phone: userData.phone || accounts[existingIndex].phone || null,
+            verified: userData.verified !== undefined ? !!userData.verified : (accounts[existingIndex].verified || false),
+            mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (accounts[existingIndex].mfa_enabled || false),
+            locale: userData.locale || accounts[existingIndex].locale || null,
+            premium_type: userData.premium_type,
+            premium_since: userData.premium_since || null,
+            premium_guild_since: userData.premium_guild_since || null,
+            legacy_username: userData.legacy_username || null,
+            badges: userData.badges || [],
+            flags: userData.flags,
+            public_flags: userData.public_flags,
+            token: token,
+            invalid: false
+        };
+    } else {
+        accounts.push({
+            id: userData.id,
+            _profileChecked: true,
+            _profileVersion: 4,
+            username: userData.username,
+            global_name: userData.global_name,
+            avatar: userData.avatar,
+            email: userData.email || null,
+            phone: userData.phone || null,
+            verified: !!userData.verified,
+            mfa_enabled: !!userData.mfa_enabled,
+            locale: userData.locale || null,
+            premium_type: userData.premium_type,
+            premium_since: userData.premium_since || null,
+            premium_guild_since: userData.premium_guild_since || null,
+            legacy_username: userData.legacy_username || null,
+            badges: userData.badges || [],
+            flags: userData.flags,
+            public_flags: userData.public_flags,
+            token: token,
+            folderId: null,
+            invalid: false
+        });
+    }
+    await chrome.storage.local.set({ discordAccounts: accounts });
+    return { success: true };
+}
+
+// Fallback capture path: if content.js missed the token (e.g. it ran
+// before Discord stored it), watch for the tab landing on the app
+// after login and extract the token from the page ourselves.
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    const url = (changeInfo && changeInfo.url) || (tab && tab.url) || '';
+    if (!/^https:\/\/(www\.)?(discord\.com|discordapp\.com)\/(app|channels\/@me)(\/|$)/.test(url)) return;
+    if (!(await getPendingOfficialLogin())) return;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
+        if (!(await getPendingOfficialLogin())) return;
+        let token = null;
+        try {
+            const results = await chrome.scripting.executeScript({
+                target: { tabId },
+                world: 'MAIN',
+                func: () => {
+                    const sanitize = (t) => {
+                        if (!t || typeof t !== 'string') return null;
+                        const clean = t.replace(/^"|"$/g, '').trim();
+                        return (clean.length > 20 && !clean.includes(' ')) ? clean : null;
+                    };
+                    try {
+                        const iframe = document.createElement('iframe');
+                        iframe.style.display = 'none';
+                        document.body.appendChild(iframe);
+                        const token = sanitize(iframe.contentWindow.localStorage.getItem('token'));
+                        document.body.removeChild(iframe);
+                        if (token) return token;
+                    } catch (e) { }
+                    try {
+                        return sanitize(window.localStorage.getItem('token'));
+                    } catch (e) { }
+                    return null;
+                }
+            });
+            if (results && results[0]) token = results[0].result;
+        } catch (e) { }
+        if (token) {
+            await handleOfficialLoginToken(token);
+            return;
+        }
     }
 });
 

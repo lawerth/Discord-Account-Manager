@@ -44,6 +44,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const addTokenProgressBar = document.getElementById('addTokenProgressBar');
     const addTokenProgressText = document.getElementById('addTokenProgressText');
     const addTokenProgressCount = document.getElementById('addTokenProgressCount');
+    const addAccountModal = document.getElementById('addAccountModal');
+    const addViaTokenBtn = document.getElementById('addViaTokenBtn');
+    const addViaLoginBtn = document.getElementById('addViaLoginBtn');
+    const cancelAddAccountBtn = document.getElementById('cancelAddAccountBtn');
     let isBulkAddRunning = false;
     let isBulkAddCanceled = false;
     let openAccountMenuToken = null;
@@ -2268,17 +2272,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // "Add Account" now offers two ways to add an account: via token
+    // (the existing token form) or via Discord's official login page.
     showAddBtn.addEventListener('click', () => {
-        addTokenForm.style.display = 'flex';
-        footerActions.style.display = 'none';
-        populateTokenFolderSelect();
-        updateDetectedTokensBadge();
-        if (addTokenProgressContainer) addTokenProgressContainer.style.display = 'none';
-        errorMsg.textContent = '';
-        saveTokenBtn.disabled = false;
-        tokenInput.disabled = false;
-        tokenInput.focus();
+        if (addAccountModal) addAccountModal.style.display = 'flex';
     });
+
+    function closeAddAccountModal() {
+        if (addAccountModal) addAccountModal.style.display = 'none';
+    }
+
+    if (addAccountModal) {
+        addAccountModal.addEventListener('click', (e) => {
+            if (e.target === addAccountModal) closeAddAccountModal();
+        });
+    }
+
+    if (cancelAddAccountBtn) {
+        cancelAddAccountBtn.addEventListener('click', closeAddAccountModal);
+    }
+
+    if (addViaTokenBtn) {
+        addViaTokenBtn.addEventListener('click', () => {
+            closeAddAccountModal();
+            addTokenForm.style.display = 'flex';
+            footerActions.style.display = 'none';
+            populateTokenFolderSelect();
+            updateDetectedTokensBadge();
+            if (addTokenProgressContainer) addTokenProgressContainer.style.display = 'none';
+            errorMsg.textContent = '';
+            saveTokenBtn.disabled = false;
+            tokenInput.disabled = false;
+            tokenInput.focus();
+        });
+    }
+
+    if (addViaLoginBtn) {
+        addViaLoginBtn.addEventListener('click', () => {
+            // Handled by the background service worker, which clears the
+            // current Discord web session (cookies + stored token) and
+            // redirects to discord.com/login. The popup closes once the
+            // login tab is opened, so all of that must happen there.
+            addViaLoginBtn.disabled = true;
+            if (addViaTokenBtn) addViaTokenBtn.disabled = true;
+            const titleEl = addViaLoginBtn.querySelector('.add-account-option-title');
+            if (titleEl) titleEl.textContent = getTranslation('addAccount.openingLogin') || 'Opening Discord Login...';
+            chrome.runtime.sendMessage({ type: 'START_OFFICIAL_LOGIN' }, () => {
+                window.close();
+            });
+        });
+    }
 
     cancelAddBtn.addEventListener('click', () => {
         if (isBulkAddRunning) {

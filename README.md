@@ -19,7 +19,7 @@
 - **🔍 Advanced Search:** Instant search among your accounts by username.
 - **📁 Folder System:** Categorize your accounts (work, gaming, personal, etc.) for a more organized view.
 - **⚡ Automatic Token Extraction:** Instantly add your account to the list by extracting the token from an open Discord tab with one click.
-- **➕ Add Account Your Way:** Use **Add Account** to either paste a token or sign in via Discord's official login page — if you're already signed in on the web, the current Discord web session (cookies & stored token) is cleared first and you're redirected to `discord.com/login`, then the new account is added automatically after you sign in.
+- **➕ Add Account Your Way:** Use **Add Account** to either paste a token or sign in via Discord's official login page — if you're already signed in on the web, the current Discord web session (cookies) is cleared first and you're redirected to `discord.com/login`, then the new account is added automatically after you sign in.
 - **✅ Token Validation:** Bulk check if your saved tokens are still valid.
 - **🌓 Theme Support:** Eye-friendly Dark Mode and Light Mode options.
 - **🛡️ Security and Privacy:** Your tokens are only stored in your browser's local storage and are never sent to any server.

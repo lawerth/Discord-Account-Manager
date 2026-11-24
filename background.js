@@ -26,6 +26,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         return true;
     } else if (message.type === 'START_OFFICIAL_LOGIN') {
+        // Only allow from extension popup (no sender.tab means it came from popup/background)
+        if (sender && sender.tab) {
+            sendResponse({ success: false, error: 'unauthorized_sender' });
+            return;
+        }
         startOfficialLogin().then(result => {
             if (sendResponse) sendResponse(result);
         }).catch(err => {
@@ -33,6 +38,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         return true;
     } else if (message.type === 'OFFICIAL_LOGIN_TOKEN') {
+        // Only allow from content scripts running on Discord app origins
+        if (!sender || !sender.tab || !sender.url) {
+            sendResponse({ success: false, error: 'unauthorized_sender' });
+            return;
+        }
+        try {
+            const senderOrigin = new URL(sender.url).origin;
+            if (!DISCORD_ORIGINS.includes(senderOrigin)) {
+                sendResponse({ success: false, error: 'unauthorized_origin' });
+                return;
+            }
+        } catch (e) {
+            sendResponse({ success: false, error: 'invalid_sender_url' });
+            return;
+        }
         handleOfficialLoginToken(message.token).then(result => {
             if (sendResponse) sendResponse(result);
         }).catch(err => {
@@ -88,10 +108,12 @@ async function getPendingOfficialLogin() {
 const DISCORD_ORIGINS = [
     'https://discord.com',
     'https://www.discord.com',
+    'https://ptb.discord.com',
+    'https://canary.discord.com',
     'https://discordapp.com',
     'https://www.discordapp.com'
 ];
-const DISCORD_HOSTS = ['discord.com', 'www.discord.com', 'discordapp.com', 'www.discordapp.com'];
+const DISCORD_HOSTS = ['discord.com', 'www.discord.com', 'ptb.discord.com', 'canary.discord.com', 'discordapp.com', 'www.discordapp.com'];
 
 async function removeAllDiscordCookies() {
     if (!chrome.cookies || typeof chrome.cookies.getAll !== 'function') return 0;
@@ -146,7 +168,7 @@ async function clearDiscordWebSession() {
         try {
             await chrome.browsingData.remove(
                 { origins: DISCORD_ORIGINS },
-                { cookies: true, localStorage: true, indexedDB: true }
+                { cookies: true, localStorage: true }
             );
         } catch (e) {
             console.warn('[DAM] browsingData.remove failed, falling back to manual clear:', e);
@@ -196,11 +218,11 @@ async function clearDiscordWebSession() {
 // content.js (polling localStorage) / the tabs.onUpdated fallback
 // below once the user has signed in.
 async function startOfficialLogin() {
-    await chrome.storage.local.set({
-        pendingOfficialLogin: { timestamp: Date.now() }
-    });
     await clearDiscordWebSession();
-    await chrome.tabs.create({ url: DISCORD_LOGIN_URL });
+    const tab = await chrome.tabs.create({ url: DISCORD_LOGIN_URL });
+    await chrome.storage.local.set({
+        pendingOfficialLogin: { timestamp: Date.now(), tabId: tab.id }
+    });
     return { success: true };
 }
 
@@ -213,85 +235,145 @@ function sanitizeOfficialToken(raw) {
 // Validate the token captured after a successful official login and
 // save it as an account (updating it in place if it was already saved,
 // mirroring the "Add Current" flow in popup.js). The pending flag is
-// claimed (removed) up front so the content.js and tabs.onUpdated
-// paths cannot both save the same login twice.
+// removed only after the account is saved successfully, so a transient
+// API error (e.g. rate limit) does not permanently lose the state.
+let _officialLoginProcessing = false;
+
 async function handleOfficialLoginToken(rawToken) {
     const token = sanitizeOfficialToken(rawToken);
     if (!token) return { success: false, error: 'no_token' };
 
     const pending = await getPendingOfficialLogin();
     if (!pending) return { success: false, error: 'no_pending_login' };
-    await chrome.storage.local.remove(['pendingOfficialLogin']);
 
-    const result = await validateToken(token);
-    if (!result.valid || !result.data) {
-        return { success: false, error: 'invalid_token' };
-    }
-    const userData = result.data;
+    // Prevent concurrent processing of the same login
+    if (_officialLoginProcessing) return { success: false, error: 'already_processing' };
+    _officialLoginProcessing = true;
 
-    const { discordAccounts } = await chrome.storage.local.get(['discordAccounts']);
-    const accounts = Array.isArray(discordAccounts) ? [...discordAccounts] : [];
-    const existingIndex = accounts.findIndex(a => a.id === userData.id || a.token === token);
+    try {
+        const result = await validateToken(token);
+        if (!result.valid || !result.data) {
+            // Only clear pending state for permanent failures (invalid/unauthorized token)
+            if (result.error === 'unauthorized' || result.error === 'invalid_token') {
+                await chrome.storage.local.remove(['pendingOfficialLogin']);
+            }
+            // For transient errors (ratelimit, timeout, network), leave pending intact
+            return { success: false, error: result.error || 'invalid_token' };
+        }
+        const userData = result.data;
 
-    if (existingIndex !== -1) {
-        accounts[existingIndex] = {
-            ...accounts[existingIndex],
-            _profileChecked: true,
-            _profileVersion: 4,
-            username: userData.username,
-            global_name: userData.global_name,
-            avatar: userData.avatar,
-            email: userData.email || accounts[existingIndex].email || null,
-            phone: userData.phone || accounts[existingIndex].phone || null,
-            verified: userData.verified !== undefined ? !!userData.verified : (accounts[existingIndex].verified || false),
-            mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (accounts[existingIndex].mfa_enabled || false),
-            locale: userData.locale || accounts[existingIndex].locale || null,
-            premium_type: userData.premium_type,
-            premium_since: userData.premium_since || null,
-            premium_guild_since: userData.premium_guild_since || null,
-            legacy_username: userData.legacy_username || null,
-            badges: userData.badges || [],
-            flags: userData.flags,
-            public_flags: userData.public_flags,
-            token: token,
-            invalid: false
-        };
-    } else {
-        accounts.push({
-            id: userData.id,
-            _profileChecked: true,
-            _profileVersion: 4,
-            username: userData.username,
-            global_name: userData.global_name,
-            avatar: userData.avatar,
-            email: userData.email || null,
-            phone: userData.phone || null,
-            verified: !!userData.verified,
-            mfa_enabled: !!userData.mfa_enabled,
-            locale: userData.locale || null,
-            premium_type: userData.premium_type,
-            premium_since: userData.premium_since || null,
-            premium_guild_since: userData.premium_guild_since || null,
-            legacy_username: userData.legacy_username || null,
-            badges: userData.badges || [],
-            flags: userData.flags,
-            public_flags: userData.public_flags,
-            token: token,
-            folderId: null,
-            invalid: false
+        const { discordAccounts, discordRootOrder } = await chrome.storage.local.get(['discordAccounts', 'discordRootOrder']);
+        const accounts = Array.isArray(discordAccounts) ? [...discordAccounts] : [];
+        const rootOrder = Array.isArray(discordRootOrder) ? [...discordRootOrder] : [];
+        const existingIndex = accounts.findIndex(a => a.id === userData.id || a.token === token);
+
+        if (existingIndex !== -1) {
+            const acc = accounts[existingIndex];
+            accounts[existingIndex] = {
+                ...acc,
+                _profileChecked: true,
+                _profileVersion: 4,
+                username: userData.username,
+                global_name: userData.global_name,
+                avatar: userData.avatar,
+                banner: userData.banner !== undefined ? userData.banner : (acc.banner || null),
+                banner_color: userData.banner_color !== undefined ? userData.banner_color : (acc.banner_color || null),
+                accent_color: userData.accent_color !== undefined ? userData.accent_color : (acc.accent_color !== undefined ? acc.accent_color : null),
+                email: userData.email || acc.email || null,
+                phone: userData.phone || acc.phone || null,
+                verified: userData.verified !== undefined ? !!userData.verified : (acc.verified || false),
+                mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (acc.mfa_enabled || false),
+                locale: userData.locale || acc.locale || null,
+                premium_type: userData.premium_type,
+                premium_since: userData._profileFailed ? (acc.premium_since || null) : (userData.premium_since || null),
+                premium_guild_since: userData._profileFailed ? (acc.premium_guild_since || null) : (userData.premium_guild_since || null),
+                legacy_username: userData._profileFailed ? (acc.legacy_username || null) : (userData.legacy_username || null),
+                badges: userData._profileFailed ? (acc.badges || []) : (userData.badges || []),
+                gifting_count: acc.gifting_count || 0,
+                gifting_tier: acc.gifting_tier || 0,
+                flags: userData.flags,
+                public_flags: userData.public_flags,
+                token: token,
+                invalid: false
+            };
+            // Update rootOrder if the existing account's token changed (account may have been referenced by old token)
+            const oldToken = acc.token;
+            if (oldToken && oldToken !== token) {
+                const orderIdx = rootOrder.indexOf(`account-${acc.id}`);
+                if (orderIdx === -1) {
+                    // Ensure account appears in root order
+                    rootOrder.push(`account-${acc.id}`);
+                }
+            }
+        } else {
+            const newAccount = {
+                id: userData.id,
+                _profileChecked: true,
+                _profileVersion: 4,
+                username: userData.username,
+                global_name: userData.global_name,
+                avatar: userData.avatar,
+                banner: userData.banner || null,
+                banner_color: userData.banner_color || null,
+                accent_color: userData.accent_color !== undefined ? userData.accent_color : null,
+                email: userData.email || null,
+                phone: userData.phone || null,
+                verified: !!userData.verified,
+                mfa_enabled: !!userData.mfa_enabled,
+                locale: userData.locale || null,
+                premium_type: userData.premium_type,
+                premium_since: userData._profileFailed ? null : (userData.premium_since || null),
+                premium_guild_since: userData._profileFailed ? null : (userData.premium_guild_since || null),
+                legacy_username: userData._profileFailed ? null : (userData.legacy_username || null),
+                badges: userData._profileFailed ? [] : (userData.badges || []),
+                gifting_count: 0,
+                gifting_tier: 0,
+                flags: userData.flags,
+                public_flags: userData.public_flags,
+                token: token,
+                folderId: null,
+                invalid: false
+            };
+            accounts.push(newAccount);
+            // Add new account to root order
+            rootOrder.push(`account-${userData.id}`);
+        }
+
+        // Save account and clear pending state atomically
+        await chrome.storage.local.set({
+            discordAccounts: accounts,
+            discordRootOrder: rootOrder
         });
+        await chrome.storage.local.remove(['pendingOfficialLogin']);
+
+        // Brief badge notification so the user knows the account was saved
+        try {
+            chrome.action.setBadgeText({ text: '✓' });
+            chrome.action.setBadgeBackgroundColor({ color: '#43b581' });
+            setTimeout(() => { try { chrome.action.setBadgeText({ text: '' }); } catch (e) { } }, 3000);
+        } catch (e) { }
+
+        return { success: true };
+    } finally {
+        _officialLoginProcessing = false;
     }
-    await chrome.storage.local.set({ discordAccounts: accounts });
-    return { success: true };
 }
 
 // Fallback capture path: if content.js missed the token (e.g. it ran
 // before Discord stored it), watch for the tab landing on the app
 // after login and extract the token from the page ourselves.
+// Filtered by tabId so only the login tab triggers this.
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    // Only react to URL changes or completed loads, not every status update
+    if (!changeInfo.url && changeInfo.status !== 'complete') return;
+
     const url = (changeInfo && changeInfo.url) || (tab && tab.url) || '';
-    if (!/^https:\/\/(www\.)?(discord\.com|discordapp\.com)\/(app|channels\/@me)(\/|$)/.test(url)) return;
-    if (!(await getPendingOfficialLogin())) return;
+    if (!/^https:\/\/(www\.)?(ptb\.|canary\.)?(discord\.com|discordapp\.com)\/(app|channels|onboarding)(\/|$)/.test(url)) return;
+
+    const pending = await getPendingOfficialLogin();
+    if (!pending) return;
+    // Only fire for the tab we opened for official login
+    if (pending.tabId && pending.tabId !== tabId) return;
 
     for (let attempt = 0; attempt < 5; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
@@ -307,14 +389,34 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                         const clean = t.replace(/^"|"$/g, '').trim();
                         return (clean.length > 20 && !clean.includes(' ')) ? clean : null;
                     };
+                    // Try Webpack getToken approach first (more reliable)
                     try {
-                        const iframe = document.createElement('iframe');
-                        iframe.style.display = 'none';
-                        document.body.appendChild(iframe);
-                        const token = sanitize(iframe.contentWindow.localStorage.getItem('token'));
-                        document.body.removeChild(iframe);
-                        if (token) return token;
+                        const wp = typeof webpackChunkdiscord_app !== 'undefined' ? webpackChunkdiscord_app : (typeof window.webpackChunkdiscord_app !== 'undefined' ? window.webpackChunkdiscord_app : null);
+                        if (wp && wp.push) {
+                            let token = null;
+                            wp.push([[Symbol()], {}, (req) => {
+                                for (const id in req.c) {
+                                    const m = req.c[id]?.exports;
+                                    if (m?.default?.getToken) { token = m.default.getToken(); break; }
+                                    if (m?.getToken) { token = m.getToken(); break; }
+                                }
+                            }]);
+                            const cleaned = sanitize(token);
+                            if (cleaned) return cleaned;
+                        }
                     } catch (e) { }
+                    // Fallback: iframe trick for localStorage
+                    try {
+                        if (document.body) {
+                            const iframe = document.createElement('iframe');
+                            iframe.style.display = 'none';
+                            document.body.appendChild(iframe);
+                            const token = sanitize(iframe.contentWindow.localStorage.getItem('token'));
+                            document.body.removeChild(iframe);
+                            if (token) return token;
+                        }
+                    } catch (e) { }
+                    // Final fallback: direct localStorage
                     try {
                         return sanitize(window.localStorage.getItem('token'));
                     } catch (e) { }
@@ -328,6 +430,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             return;
         }
     }
+});
+
+// Clean up pendingOfficialLogin if the login tab is closed before completing
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+    try {
+        const pending = await getPendingOfficialLogin();
+        if (pending && pending.tabId === tabId) {
+            await chrome.storage.local.remove(['pendingOfficialLogin']);
+        }
+    } catch (e) { }
 });
 
 async function stopCheck() {

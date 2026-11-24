@@ -3,6 +3,20 @@
 // document_start script) shows the login form instead of auto-signing
 // in with the previously logged-in account, and capture the new
 // account's token once the user has signed in and lands on the app.
+
+// Security: only run on actual Discord app origins, not arbitrary subdomains
+const ALLOWED_ORIGINS = [
+    'https://discord.com',
+    'https://www.discord.com',
+    'https://ptb.discord.com',
+    'https://canary.discord.com',
+    'https://discordapp.com',
+    'https://www.discordapp.com'
+];
+if (!ALLOWED_ORIGINS.includes(window.location.origin)) {
+    // Not a recognized Discord app origin — do nothing
+} else {
+
 const OFFICIAL_LOGIN_TTL = 15 * 60 * 1000;
 
 function sanitizeCapturedToken(raw) {
@@ -11,8 +25,32 @@ function sanitizeCapturedToken(raw) {
     return (clean.length > 20 && !clean.includes(' ')) ? clean : null;
 }
 
-chrome.storage.local.get(['pendingOfficialLogin'], (res) => {
+function startTokenPolling() {
+    let attempts = 0;
+    const timer = setInterval(() => {
+        attempts++;
+        if (attempts > 120) { clearInterval(timer); return; } // ~60s per page load
+        let token = null;
+        try { token = sanitizeCapturedToken(window.localStorage.getItem('token')); } catch (e) { }
+        if (!token) return;
+        clearInterval(timer);
+        chrome.runtime.sendMessage({ type: 'OFFICIAL_LOGIN_TOKEN', token }, () => {
+            // Background claims the pending flag and saves the account;
+            // nothing else to do here (runtime.lastError if it went away).
+        });
+    }, 500);
+}
+
+chrome.storage.local.get(['pendingOfficialLogin', 'pendingLogin'], (res) => {
     if (chrome.runtime.lastError) return;
+
+    // pendingLogin (account switching) takes priority over pendingOfficialLogin
+    const pendingLogin = res ? res.pendingLogin : null;
+    if (pendingLogin && pendingLogin.token) {
+        // Let the existing pendingLogin handler below deal with it
+        return;
+    }
+
     const pending = res ? res.pendingOfficialLogin : null;
     if (!pending) return;
     if (Date.now() - (pending.timestamp || 0) > OFFICIAL_LOGIN_TTL) {
@@ -27,25 +65,20 @@ chrome.storage.local.get(['pendingOfficialLogin'], (res) => {
         // a different key in this Discord version.
         try { window.localStorage.clear(); } catch (e) { }
         try { window.sessionStorage.clear(); } catch (e) { }
+        // Watch for SPA navigation away from /login (Discord uses client-side routing)
+        // so we can start polling once the user completes login
+        const observer = new MutationObserver(() => {
+            if (!window.location.pathname.startsWith('/login')) {
+                observer.disconnect();
+                startTokenPolling();
+            }
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
         return;
     }
 
-    // Poll localStorage: right after a successful login Discord may
-    // take a moment to store the token, and navigation to /app or
-    // /channels/@me can also happen via SPA routing without a reload.
-    let attempts = 0;
-    const timer = setInterval(() => {
-        attempts++;
-        if (attempts > 120) { clearInterval(timer); return; } // ~60s per page load
-        let token = null;
-        try { token = sanitizeCapturedToken(window.localStorage.getItem('token')); } catch (e) { }
-        if (!token) return;
-        clearInterval(timer);
-        chrome.runtime.sendMessage({ type: 'OFFICIAL_LOGIN_TOKEN', token }, () => {
-            // Background claims the pending flag and saves the account;
-            // nothing else to do here (runtime.lastError if it went away).
-        });
-    }, 500);
+    // Already on an app page — poll localStorage for token
+    startTokenPolling();
 });
 
 if (window.location.pathname.startsWith('/login')) {
@@ -75,3 +108,5 @@ if (window.location.pathname.startsWith('/login')) {
         } catch (err) { }
     });
 }
+
+} // end of ALLOWED_ORIGINS check

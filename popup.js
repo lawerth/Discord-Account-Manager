@@ -2317,7 +2317,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (addViaTokenBtn) addViaTokenBtn.disabled = true;
             const titleEl = addViaLoginBtn.querySelector('.add-account-option-title');
             if (titleEl) titleEl.textContent = getTranslation('addAccount.openingLogin') || 'Opening Discord Login...';
-            chrome.runtime.sendMessage({ type: 'START_OFFICIAL_LOGIN' }, () => {
+            chrome.runtime.sendMessage({ type: 'START_OFFICIAL_LOGIN' }, (response) => {
+                if (chrome.runtime.lastError || !response || !response.success) {
+                    // Show error and re-enable buttons
+                    addViaLoginBtn.disabled = false;
+                    if (addViaTokenBtn) addViaTokenBtn.disabled = false;
+                    if (titleEl) titleEl.textContent = getTranslation('addAccount.viaLogin') || 'Add via Discord Login';
+                    return;
+                }
                 window.close();
             });
         });
@@ -4867,6 +4874,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             closeUpdateTokenModal();
             closeAccountDetailsModal();
+            closeAddAccountModal();
             hideBadgesPopover(0);
             openAccountMenuToken = null;
             document.querySelectorAll('.account-menu-wrapper.open').forEach(el => {

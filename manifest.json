@@ -1,26 +1,32 @@
 {
     "manifest_version": 3,
     "name": "__MSG_appName__",
-    "version": "2.3.0",
+    "version": "2.4.0",
     "description": "__MSG_appDesc__",
     "default_locale": "en",
     "permissions": [
         "storage",
         "scripting",
         "activeTab",
-        "clipboardWrite"
+        "clipboardWrite",
+        "cookies",
+        "browsingData"
     ],
     "background": {
         "service_worker": "background.js"
     },
     "host_permissions": [
+        "https://discord.com/*",
         "https://*.discord.com/*",
+        "https://discordapp.com/*",
         "https://*.discordapp.com/*"
     ],
     "content_scripts": [
         {
             "matches": [
+                "https://discord.com/*",
                 "https://*.discord.com/*",
+                "https://discordapp.com/*",
                 "https://*.discordapp.com/*"
             ],
             "js": [

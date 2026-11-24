@@ -22,8 +22,10 @@ The extension processes the following data solely to provide account management 
 ### 3. Permissions
 
 - **`storage`:** Used to save your account list, folders, appearance theme, and interface preferences locally.
-- **`activeTab` & `scripting`:** Used strictly when you explicitly click "Add Current Account" to read the session token of your own currently open Discord tab and import it into your local storage.
+- **`activeTab` & `scripting`:** Used strictly when you explicitly click "Add Current Account" to read the session token of your own currently open Discord tab and import it into your local storage. Also used by the "Add via Discord Login" feature to detect when login is complete and capture the new session token from the Discord tab.
 - **`clipboardWrite`:** Used when you explicitly click to copy an ID, token, email, phone, avatar URL, or banner URL to your clipboard.
+- **`cookies`:** Used by the "Add via Discord Login" feature to clear Discord cookies before redirecting you to the login page, ensuring the login form appears instead of auto-signing in with a previous account.
+- **`browsingData`:** Used by the "Add via Discord Login" feature to perform an origin-level wipe of Discord's cookies and localStorage, guaranteeing a clean login session.
 
 ### 4. Disclaimer
 

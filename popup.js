@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const addViaLoginBtn = document.getElementById('addViaLoginBtn');
     const cancelAddAccountBtn = document.getElementById('cancelAddAccountBtn');
     let isBulkAddRunning = false;
-    let isBulkAddCanceled = false;
+    let bulkAddAutoCloseTimer = null;
     let openAccountMenuToken = null;
 
     function escapeHtml(str) {
@@ -114,8 +114,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     target: { tabId: tab.id },
                     world: "MAIN",
                     func: () => {
-                        let logs = [];
-
                         const sanitizeToken = (t) => {
                             if (!t) return null;
                             if (typeof t === 'string') {
@@ -129,24 +127,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                         };
 
                         try {
-                            const iframe = document.createElement('iframe');
-                            iframe.style.display = 'none';
-                            document.body.appendChild(iframe);
-                            let token1 = sanitizeToken(iframe.contentWindow.localStorage.getItem('token'));
-                            document.body.removeChild(iframe);
-                            if (token1) return token1;
-                            logs.push("iframe empty");
-                        } catch (e) {
-                            logs.push("iframe err: " + e.message);
-                        }
+                            if (document.body) {
+                                const iframe = document.createElement('iframe');
+                                iframe.style.display = 'none';
+                                document.body.appendChild(iframe);
+                                const token1 = sanitizeToken(iframe.contentWindow.localStorage.getItem('token'));
+                                document.body.removeChild(iframe);
+                                if (token1) return token1;
+                            }
+                        } catch (e) { }
 
                         try {
-                            let token2 = sanitizeToken(window.localStorage.getItem('token'));
+                            const token2 = sanitizeToken(window.localStorage.getItem('token'));
                             if (token2) return token2;
-                            logs.push("ls empty");
-                        } catch (e) {
-                            logs.push("ls err");
-                        }
+                        } catch (e) { }
 
                         try {
                             let foundToken = null;
@@ -185,28 +179,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 ]);
                             }
                             if (foundToken) return foundToken;
-                            logs.push("webpack empty");
-                        } catch (e) {
-                            logs.push("webpack err: " + e.message);
-                        }
+                        } catch (e) { }
 
-                        return "ERR:" + logs.join(", ");
+                        return null;
                     }
                 });
 
                 if (results && results[0] && results[0].result) {
-                    const tokenResult = results[0].result;
-
-                    if (tokenResult.startsWith("ERR:")) {
-                        console.warn("Token Extraction Notice:", tokenResult);
-                        activeAccountId = null;
-                        markActiveAccount();
-                        addCurrentAccountBtn.textContent = getTranslation('actions.notFound');
-                        addCurrentAccountBtn.title = 'Debug logs: ' + tokenResult;
-                        return;
-                    }
-
-                    const token = tokenResult;
+                    const token = results[0].result;
 
                     const matchedAccount = accounts.find(a => a.token === token);
                     if (matchedAccount) {
@@ -449,13 +429,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 listContainer.classList.add('initial-load');
                 renderAccounts();
 
-                chrome.storage.local.get(['isChecking', 'checkProgress', 'checkTarget', 'checkCount', 'checkResults'], (res) => {
+                chrome.storage.local.get([
+                    'isChecking', 'checkProgress', 'checkTarget', 'checkCount', 'checkResults',
+                    'isBulkAdding', 'bulkAddCurrent', 'bulkAddTotal', 'bulkAddProgress',
+                    'bulkAddResults', 'bulkAddFinished', 'bulkAddCompletedAt'
+                ], (res) => {
                     updateProgressUI(res.isChecking, res.checkProgress || 0, res.checkTarget, res.checkCount, res.checkResults);
+                    if (res.isBulkAdding || (res.bulkAddFinished && res.bulkAddCompletedAt && Date.now() - res.bulkAddCompletedAt < 30000)) {
+                        updateBulkAddUI(res);
+                    } else if (res.bulkAddFinished) {
+                        chrome.storage.local.set({ bulkAddFinished: false });
+                    }
+                    if (accounts.length > 0 && searchInput && !res.isBulkAdding) {
+                        searchInput.focus();
+                    }
                 });
-
-                if (accounts.length > 0 && searchInput) {
-                    searchInput.focus();
-                }
 
                 checkActiveDiscordTab();
 
@@ -636,13 +624,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    function saveFolders(newFolders) {
+    function saveFolders(newFolders, shouldRender = true) {
         return new Promise((resolve) => {
             folders = newFolders;
             const clean = getCleanRootOrder();
             const foldersToSave = newFolders.map(({ isEditing, menuOpen, ...rest }) => rest);
             chrome.storage.local.set({ discordFolders: foldersToSave, discordRootOrder: clean }, () => {
-                renderAccounts();
+                if (shouldRender) renderAccounts();
                 resolve();
             });
         });
@@ -901,28 +889,40 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 
+    function closeAllFolderMenus() {
+        folders.forEach(f => {
+            delete f.menuOpen;
+        });
+        listContainer.querySelectorAll('.folder-actions.open').forEach(el => {
+            el.classList.remove('open');
+        });
+        listContainer.querySelectorAll('.folder-menu.open').forEach(el => {
+            el.classList.remove('open');
+        });
+    }
+
+    function closeAllAccountMenus(exceptWrapper = null) {
+        if (!exceptWrapper) {
+            openAccountMenuToken = null;
+        }
+        document.querySelectorAll('.account-menu-wrapper.open').forEach(el => {
+            if (el !== exceptWrapper) {
+                el.classList.remove('open');
+                el.classList.remove('open-up');
+            }
+        });
+    }
+
     document.addEventListener('click', (e) => {
         const folderMenuBtn = e.target.closest('.folder-menu-btn');
         const folderMenu = e.target.closest('.folder-menu');
 
         if (!folderMenuBtn && !folderMenu) {
-            folders.forEach(f => {
-                delete f.menuOpen;
-            });
-            listContainer.querySelectorAll('.folder-actions.open').forEach(el => {
-                el.classList.remove('open');
-            });
-            listContainer.querySelectorAll('.folder-menu.open').forEach(el => {
-                el.classList.remove('open');
-            });
+            closeAllFolderMenus();
         }
 
         if (!e.target.closest('.account-menu-wrapper')) {
-            openAccountMenuToken = null;
-            document.querySelectorAll('.account-menu-wrapper.open').forEach(el => {
-                el.classList.remove('open');
-                el.classList.remove('open-up');
-            });
+            closeAllAccountMenus();
         }
     });
 
@@ -1040,6 +1040,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             folderMenuBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                closeAllAccountMenus();
+                hideBadgesPopover(0);
+                document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);
                 folders.forEach(f => {
                     if (f.id === folder.id) {
                         f.menuOpen = !f.menuOpen;
@@ -1118,9 +1121,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                     e.stopPropagation();
                     e.preventDefault();
                     const color = opt.dataset.color || null;
-                    if (folder.color === color) return;
+                    if ((folder.color || null) === color) return;
                     folder.color = color;
-                    saveFolders([...folders]);
+                    Array.from(folderContainer.classList)
+                        .filter(cls => cls.startsWith('color-'))
+                        .forEach(cls => folderContainer.classList.remove(cls));
+                    if (color) {
+                        folderContainer.classList.add('color-' + color);
+                    }
+                    colorOptions.forEach(o => o.classList.toggle('active', (o.dataset.color || null) === color));
+                    saveFolders([...folders], false);
                 };
 
                 opt.addEventListener('click', applyColor);
@@ -1859,6 +1869,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             badgesContainer.addEventListener('mousedown', (e) => e.stopPropagation());
             badgesContainer.addEventListener('click', (e) => {
                 e.stopPropagation();
+                closeAllFolderMenus();
+                closeAllAccountMenus();
+                document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);
                 if (badges.length > 0) {
                     if (badgesPopoverEl && badgesPopoverEl.classList.contains('visible') && badgesPopoverTarget === badgesContainer) {
                         hideBadgesPopover(0);
@@ -1890,12 +1903,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             accountMenuBtn.addEventListener('mousedown', (e) => e.stopPropagation());
             accountMenuBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                document.querySelectorAll('.account-menu-wrapper.open').forEach(el => {
-                    if (el !== accountMenuWrapper) {
-                        el.classList.remove('open');
-                        el.classList.remove('open-up');
-                    }
-                });
+                closeAllFolderMenus();
+                closeAllAccountMenus(accountMenuWrapper);
+                hideBadgesPopover(0);
+                document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);
                 const isOpening = !accountMenuWrapper.classList.contains('open');
                 if (isOpening) {
                     openAccountMenuToken = acc.token;
@@ -1973,8 +1984,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         premium_guild_since: userData._profileFailed ? (existing.premium_guild_since || null) : (userData.premium_guild_since || null),
                         legacy_username: userData._profileFailed ? (existing.legacy_username || null) : (userData.legacy_username || null),
                         badges: userData._profileFailed ? (existing.badges || []) : (userData.badges || []),
-                        gifting_count: existing.gifting_count || 0,
-                        gifting_tier: existing.gifting_tier || 0
+                        gifting_count: !userData._badgesFetchFailed && typeof userData.gifting_count === 'number' ? userData.gifting_count : (existing.gifting_count || 0),
+                        gifting_tier: !userData._badgesFetchFailed && typeof userData.gifting_tier === 'number' ? userData.gifting_tier : (existing.gifting_tier || 0)
                     };
                     await saveAccounts(accounts);
                 } else if (result && (result.error === 'unauthorized' || result.error === 'invalid_token')) {
@@ -2226,6 +2237,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (tokenFolderTrigger && customTokenFolderSelect) {
         tokenFolderTrigger.addEventListener('click', (e) => {
             e.stopPropagation();
+            closeAllFolderMenus();
+            closeAllAccountMenus();
+            hideBadgesPopover(0);
             document.querySelectorAll('.custom-select-container.open').forEach(el => {
                 if (el !== customTokenFolderSelect) closeCustomSelect(el);
             });
@@ -2272,8 +2286,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // "Add Account" now offers two ways to add an account: via token
-    // (the existing token form) or via Discord's official login page.
     showAddBtn.addEventListener('click', () => {
         if (addAccountModal) addAccountModal.style.display = 'flex';
     });
@@ -2294,13 +2306,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (addViaTokenBtn) {
         addViaTokenBtn.addEventListener('click', () => {
+            if (bulkAddAutoCloseTimer) {
+                clearTimeout(bulkAddAutoCloseTimer);
+                bulkAddAutoCloseTimer = null;
+            }
             closeAddAccountModal();
+            setBulkAddCompactMode(false);
             addTokenForm.style.display = 'flex';
             footerActions.style.display = 'none';
             populateTokenFolderSelect();
             updateDetectedTokensBadge();
             if (addTokenProgressContainer) addTokenProgressContainer.style.display = 'none';
             errorMsg.textContent = '';
+            errorMsg.style.color = '';
             saveTokenBtn.disabled = false;
             tokenInput.disabled = false;
             tokenInput.focus();
@@ -2309,17 +2327,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (addViaLoginBtn) {
         addViaLoginBtn.addEventListener('click', () => {
-            // Handled by the background service worker, which clears the
-            // current Discord web session (cookies) and
-            // redirects to discord.com/login. The popup closes once the
-            // login tab is opened, so all of that must happen there.
             addViaLoginBtn.disabled = true;
             if (addViaTokenBtn) addViaTokenBtn.disabled = true;
             const titleEl = addViaLoginBtn.querySelector('.add-account-option-title');
             if (titleEl) titleEl.textContent = getTranslation('addAccount.openingLogin') || 'Opening Discord Login...';
             chrome.runtime.sendMessage({ type: 'START_OFFICIAL_LOGIN' }, (response) => {
                 if (chrome.runtime.lastError || !response || !response.success) {
-                    // Show error and re-enable buttons
                     addViaLoginBtn.disabled = false;
                     if (addViaTokenBtn) addViaTokenBtn.disabled = false;
                     if (titleEl) titleEl.textContent = getTranslation('addAccount.viaLogin') || 'Add via Discord Login';
@@ -2330,21 +2343,128 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    cancelAddBtn.addEventListener('click', () => {
-        if (isBulkAddRunning) {
-            isBulkAddCanceled = true;
-            cancelAddBtn.textContent = getTranslation('addToken.cancel') || 'Cancel';
-            return;
+    const addTokenHeader = addTokenForm ? addTokenForm.querySelector('.add-token-header') : null;
+    const tokenFolderRow = document.getElementById('tokenFolderRow');
+
+    function setBulkAddCompactMode(active) {
+        const display = active ? 'none' : '';
+        if (addTokenHeader) addTokenHeader.style.display = display;
+        if (tokenInput) tokenInput.style.display = display;
+        if (tokenFolderRow) tokenFolderRow.style.display = display;
+        if (saveTokenBtn) saveTokenBtn.style.display = display;
+        if (importTxtFile) importTxtFile.disabled = active;
+    }
+
+    function resetAddTokenForm() {
+        if (bulkAddAutoCloseTimer) {
+            clearTimeout(bulkAddAutoCloseTimer);
+            bulkAddAutoCloseTimer = null;
         }
+        setBulkAddCompactMode(false);
         addTokenForm.style.display = 'none';
         footerActions.style.display = 'flex';
         tokenInput.value = '';
         tokenInput.disabled = false;
+        saveTokenBtn.disabled = false;
+        if (tokenFolderSelect) tokenFolderSelect.disabled = false;
+        if (tokenFolderTrigger) tokenFolderTrigger.disabled = false;
         errorMsg.textContent = '';
+        errorMsg.style.color = '';
         if (detectedTokensBadge) detectedTokensBadge.style.display = 'none';
         if (addTokenProgressContainer) addTokenProgressContainer.style.display = 'none';
         if (customTokenFolderSelect) customTokenFolderSelect.classList.remove('open');
+        cancelAddBtn.textContent = getTranslation('addToken.cancel') || 'Cancel';
         selectFolderOption('', getTranslation('addToken.noFolder') || 'Uncategorized');
+    }
+
+    function updateBulkAddUI(state) {
+        if (!state || (!state.isBulkAdding && !state.bulkAddFinished && !isBulkAddRunning)) return;
+
+        if (bulkAddAutoCloseTimer) {
+            clearTimeout(bulkAddAutoCloseTimer);
+            bulkAddAutoCloseTimer = null;
+        }
+
+        if (state && state.isBulkAdding) {
+            isBulkAddRunning = true;
+            closeAddAccountModal();
+            setBulkAddCompactMode(true);
+            addTokenForm.style.display = 'flex';
+            footerActions.style.display = 'none';
+            saveTokenBtn.disabled = true;
+            tokenInput.disabled = true;
+            if (tokenFolderSelect) tokenFolderSelect.disabled = true;
+            if (tokenFolderTrigger) tokenFolderTrigger.disabled = true;
+            if (customTokenFolderSelect) customTokenFolderSelect.classList.remove('open');
+            cancelAddBtn.textContent = getTranslation('addToken.stop') || 'Stop';
+
+            const current = state.bulkAddCurrent || 0;
+            const total = state.bulkAddTotal || 0;
+            const percent = state.bulkAddProgress || 0;
+
+            if (addTokenProgressContainer) {
+                addTokenProgressContainer.style.display = 'flex';
+                if (addTokenProgressBar) addTokenProgressBar.style.width = `${percent}%`;
+            }
+            if (addTokenProgressText) {
+                const template = getTranslation('addToken.processing') || 'Adding {current} of {total}...';
+                addTokenProgressText.textContent = template.replace('{current}', current).replace('{total}', total);
+            }
+            if (addTokenProgressCount) {
+                addTokenProgressCount.textContent = `${percent}%`;
+            }
+            return;
+        }
+
+        const wasRunning = isBulkAddRunning;
+        isBulkAddRunning = false;
+        saveTokenBtn.disabled = false;
+        tokenInput.disabled = false;
+        if (tokenFolderSelect) tokenFolderSelect.disabled = false;
+        if (tokenFolderTrigger) tokenFolderTrigger.disabled = false;
+        cancelAddBtn.textContent = getTranslation('addToken.cancel') || 'Cancel';
+
+        if (state && state.bulkAddFinished && state.bulkAddResults) {
+            const { added = 0, skipped = 0, failed = 0 } = state.bulkAddResults;
+            setBulkAddCompactMode(true);
+            if (!wasRunning) {
+                addTokenForm.style.display = 'flex';
+                footerActions.style.display = 'none';
+            }
+            if (addTokenProgressContainer) {
+                addTokenProgressContainer.style.display = 'flex';
+                if (addTokenProgressBar) addTokenProgressBar.style.width = `${state.bulkAddProgress ?? 100}%`;
+            }
+            if (addTokenProgressCount) {
+                addTokenProgressCount.textContent = `${state.bulkAddProgress ?? 100}%`;
+            }
+
+            const summaryTemplate = getTranslation('addToken.summary') || 'Done: {added} added, {skipped} existing, {failed} invalid.';
+            errorMsg.textContent = summaryTemplate
+                .replace('{added}', added)
+                .replace('{skipped}', skipped)
+                .replace('{failed}', failed);
+            errorMsg.style.color = failed > 0 ? 'var(--text-warning)' : 'var(--success)';
+
+            chrome.storage.local.set({ bulkAddFinished: false });
+            bulkAddAutoCloseTimer = setTimeout(() => {
+                if (!isBulkAddRunning) {
+                    resetAddTokenForm();
+                }
+            }, 2800);
+        } else {
+            setBulkAddCompactMode(false);
+        }
+    }
+
+    cancelAddBtn.addEventListener('click', () => {
+        if (isBulkAddRunning) {
+            chrome.runtime.sendMessage({ type: 'STOP_BULK_ADD' });
+            cancelAddBtn.textContent = getTranslation('addToken.cancel') || 'Cancel';
+            return;
+        }
+        chrome.storage.local.set({ bulkAddFinished: false });
+        resetAddTokenForm();
     });
 
     tokenInput.addEventListener('input', () => {
@@ -3280,8 +3400,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     premium_guild_since: userData._profileFailed ? (existing.premium_guild_since || null) : (userData.premium_guild_since || null),
                     legacy_username: userData._profileFailed ? (existing.legacy_username || null) : (userData.legacy_username || null),
                     badges: userData._profileFailed ? (existing.badges || []) : (userData.badges || []),
-                    gifting_count: existing.gifting_count || 0,
-                    gifting_tier: existing.gifting_tier || 0
+                    gifting_count: !userData._badgesFetchFailed && typeof userData.gifting_count === 'number' ? userData.gifting_count : (existing.gifting_count || 0),
+                    gifting_tier: !userData._badgesFetchFailed && typeof userData.gifting_tier === 'number' ? userData.gifting_tier : (existing.gifting_tier || 0)
                 };
                 await saveAccounts(accounts);
             }
@@ -3479,6 +3599,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         premium_guild_since: userData.premium_guild_since || null,
                         legacy_username: userData.legacy_username || null,
                         badges: userData.badges || [],
+                        gifting_count: typeof userData.gifting_count === 'number' ? userData.gifting_count : (newAccounts[existingIndex].gifting_count || 0),
+                        gifting_tier: typeof userData.gifting_tier === 'number' ? userData.gifting_tier : (newAccounts[existingIndex].gifting_tier || 0),
                         flags: userData.flags,
                         public_flags: userData.public_flags,
                         token: token,
@@ -3503,6 +3625,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         premium_guild_since: userData.premium_guild_since || null,
                         legacy_username: userData.legacy_username || null,
                         badges: userData.badges || [],
+                        gifting_count: typeof userData.gifting_count === 'number' ? userData.gifting_count : 0,
+                        gifting_tier: typeof userData.gifting_tier === 'number' ? userData.gifting_tier : 0,
                         flags: userData.flags,
                         public_flags: userData.public_flags,
                         token: token,
@@ -3518,139 +3642,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        isBulkAddRunning = true;
-        isBulkAddCanceled = false;
+        errorMsg.textContent = '';
+        errorMsg.style.color = '';
 
-        saveTokenBtn.disabled = true;
-        tokenInput.disabled = true;
-        if (tokenFolderSelect) tokenFolderSelect.disabled = true;
-        if (tokenFolderTrigger) tokenFolderTrigger.disabled = true;
-        if (customTokenFolderSelect) customTokenFolderSelect.classList.remove('open');
-        cancelAddBtn.textContent = getTranslation('addToken.stop') || 'Stop';
+        chrome.runtime.sendMessage({
+            type: 'START_BULK_ADD',
+            tokens,
+            folderId: selectedFolderId
+        });
 
-        if (addTokenProgressContainer) {
-            addTokenProgressContainer.style.display = 'flex';
-            if (addTokenProgressBar) addTokenProgressBar.style.width = '0%';
-        }
-
-        let addedCount = 0;
-        let skippedCount = 0;
-        let failedCount = 0;
-        let currentAccounts = [...accounts];
-
-        for (let i = 0; i < tokens.length; i++) {
-            if (isBulkAddCanceled) break;
-
-            const token = tokens[i];
-            const currentNum = i + 1;
-            const percent = Math.round((currentNum / tokens.length) * 100);
-
-            if (addTokenProgressBar) addTokenProgressBar.style.width = `${percent}%`;
-            if (addTokenProgressText) {
-                const template = getTranslation('addToken.processing') || 'Adding {current} of {total}...';
-                addTokenProgressText.textContent = template.replace('{current}', currentNum).replace('{total}', tokens.length);
-            }
-            if (addTokenProgressCount) {
-                addTokenProgressCount.textContent = `${percent}%`;
-            }
-
-            if (currentAccounts.some(a => a.token === token)) {
-                skippedCount++;
-                continue;
-            }
-
-            const userData = await validateToken(token);
-
-            if (isBulkAddCanceled) break;
-
-            if (userData) {
-                const existingIdx = currentAccounts.findIndex(a => a.id === userData.id);
-                if (existingIdx !== -1) {
-                    currentAccounts[existingIdx] = {
-                        ...currentAccounts[existingIdx],
-                        _profileChecked: true,
-                        _profileVersion: 4,
-                        username: userData.username,
-                        global_name: userData.global_name,
-                        avatar: userData.avatar,
-                        email: userData.email || currentAccounts[existingIdx].email || null,
-                        phone: userData.phone || currentAccounts[existingIdx].phone || null,
-                        verified: userData.verified !== undefined ? !!userData.verified : (currentAccounts[existingIdx].verified || false),
-                        mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (currentAccounts[existingIdx].mfa_enabled || false),
-                        locale: userData.locale || currentAccounts[existingIdx].locale || null,
-                        premium_type: userData.premium_type,
-                        premium_since: userData.premium_since || null,
-                        premium_guild_since: userData.premium_guild_since || null,
-                        legacy_username: userData.legacy_username || null,
-                        badges: userData.badges || [],
-                        flags: userData.flags,
-                        public_flags: userData.public_flags,
-                        token: token,
-                        folderId: selectedFolderId || currentAccounts[existingIdx].folderId || null,
-                        invalid: false
-                    };
-                    skippedCount++;
-                } else {
-                    currentAccounts.push({
-                        id: userData.id,
-                        _profileChecked: true,
-                        _profileVersion: 4,
-                        username: userData.username,
-                        global_name: userData.global_name,
-                        avatar: userData.avatar,
-                        email: userData.email || null,
-                        phone: userData.phone || null,
-                        verified: !!userData.verified,
-                        mfa_enabled: !!userData.mfa_enabled,
-                        locale: userData.locale || null,
-                        premium_type: userData.premium_type,
-                        premium_since: userData.premium_since || null,
-                        premium_guild_since: userData.premium_guild_since || null,
-                        legacy_username: userData.legacy_username || null,
-                        badges: userData.badges || [],
-                        flags: userData.flags,
-                        public_flags: userData.public_flags,
-                        token: token,
-                        folderId: selectedFolderId,
-                        invalid: false
-                    });
-                    addedCount++;
-                }
-            } else {
-                failedCount++;
-            }
-
-            if (i < tokens.length - 1 && !isBulkAddCanceled) {
-                await new Promise(r => setTimeout(r, 280));
-            }
-        }
-
-        if (addedCount > 0 || currentAccounts.length !== accounts.length) {
-            await saveAccounts(currentAccounts);
-        }
-
-        isBulkAddRunning = false;
-        saveTokenBtn.disabled = false;
-        tokenInput.disabled = false;
-        if (tokenFolderSelect) tokenFolderSelect.disabled = false;
-        if (tokenFolderTrigger) tokenFolderTrigger.disabled = false;
-        cancelAddBtn.textContent = getTranslation('addToken.cancel') || 'Cancel';
-
-        const summaryTemplate = getTranslation('addToken.summary') || 'Done: {added} added, {skipped} existing, {failed} invalid.';
-        const summaryMsg = summaryTemplate
-            .replace('{added}', addedCount)
-            .replace('{skipped}', skippedCount)
-            .replace('{failed}', failedCount);
-
-        errorMsg.textContent = summaryMsg;
-        errorMsg.style.color = failedCount > 0 ? 'var(--text-warning)' : 'var(--success)';
-
-        setTimeout(() => {
-            if (!isBulkAddRunning) {
-                cancelAddBtn.click();
-                errorMsg.style.color = '';
-            }
-        }, 2800);
+        updateBulkAddUI({
+            isBulkAdding: true,
+            bulkAddCurrent: 0,
+            bulkAddTotal: tokens.length,
+            bulkAddProgress: 0
+        });
     });
 
     addFolderBtn.addEventListener('click', () => {
@@ -3971,8 +3977,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                     updateProgressUI(res.isChecking, res.checkProgress || 0, res.checkTarget, res.checkCount, res.checkResults);
                 });
             }
+            if (changes.isBulkAdding || changes.bulkAddCurrent || changes.bulkAddTotal || changes.bulkAddProgress || changes.bulkAddResults || changes.bulkAddFinished) {
+                chrome.storage.local.get([
+                    'isBulkAdding', 'bulkAddCurrent', 'bulkAddTotal', 'bulkAddProgress',
+                    'bulkAddResults', 'bulkAddFinished', 'bulkAddCompletedAt'
+                ], (res) => {
+                    updateBulkAddUI(res);
+                });
+            }
             if (changes.lastCheckAt || changes.lastCheckResults || changes.checkCount || changes.cancelCheck) {
                 loadSettingsStatus();
+            }
+            if (changes.discordRootOrder) {
+                rootOrder = changes.discordRootOrder.newValue || [];
             }
             if (changes.discordAccounts) {
                 accounts = changes.discordAccounts.newValue || [];
@@ -4805,10 +4822,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 : handle.closest('.account-item');
             if (!element) return;
 
-            folders.forEach(f => { delete f.menuOpen; });
-            document.querySelectorAll('.folder-actions.open, .folder-menu.open, .account-menu-wrapper.open').forEach(el => {
-                el.classList.remove('open', 'open-up');
-            });
+            closeAllFolderMenus();
+            closeAllAccountMenus();
+            hideBadgesPopover(0);
 
             pendingDrag = {
                 type,
@@ -4876,11 +4892,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             closeAccountDetailsModal();
             closeAddAccountModal();
             hideBadgesPopover(0);
-            openAccountMenuToken = null;
-            document.querySelectorAll('.account-menu-wrapper.open').forEach(el => {
-                el.classList.remove('open');
-                el.classList.remove('open-up');
-            });
+            closeAllFolderMenus();
+            closeAllAccountMenus();
             document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);
         }
     });

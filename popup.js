@@ -2310,7 +2310,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (addViaLoginBtn) {
         addViaLoginBtn.addEventListener('click', () => {
             // Handled by the background service worker, which clears the
-            // current Discord web session (cookies + stored token) and
+            // current Discord web session (cookies) and
             // redirects to discord.com/login. The popup closes once the
             // login tab is opened, so all of that must happen there.
             addViaLoginBtn.disabled = true;

@@ -27,8 +27,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     } else if (message.type === 'START_OFFICIAL_LOGIN') {
         // Only allow from extension popup (no sender.tab means it came from popup/background)
-        if (sender && sender.tab) {
-            sendResponse({ success: false, error: 'unauthorized_sender' });
+        if (!sender || sender.id !== chrome.runtime.id || sender.tab) {
+            if (sendResponse) sendResponse({ success: false, error: 'unauthorized_sender' });
             return;
         }
         startOfficialLogin().then(result => {
@@ -39,18 +39,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     } else if (message.type === 'OFFICIAL_LOGIN_TOKEN') {
         // Only allow from content scripts running on Discord app origins
-        if (!sender || !sender.tab || !sender.url) {
-            sendResponse({ success: false, error: 'unauthorized_sender' });
+        if (!sender || sender.id !== chrome.runtime.id || !sender.tab || !sender.url) {
+            if (sendResponse) sendResponse({ success: false, error: 'unauthorized_sender' });
             return;
         }
         try {
             const senderOrigin = new URL(sender.url).origin;
             if (!DISCORD_ORIGINS.includes(senderOrigin)) {
-                sendResponse({ success: false, error: 'unauthorized_origin' });
+                if (sendResponse) sendResponse({ success: false, error: 'unauthorized_origin' });
                 return;
             }
         } catch (e) {
-            sendResponse({ success: false, error: 'invalid_sender_url' });
+            if (sendResponse) sendResponse({ success: false, error: 'invalid_sender_url' });
             return;
         }
         handleOfficialLoginToken(message.token).then(result => {
@@ -218,10 +218,14 @@ async function clearDiscordWebSession() {
 // content.js (polling localStorage) / the tabs.onUpdated fallback
 // below once the user has signed in.
 async function startOfficialLogin() {
+    const startedAt = Date.now();
+    await chrome.storage.local.set({
+        pendingOfficialLogin: { timestamp: startedAt, tabId: null }
+    });
     await clearDiscordWebSession();
     const tab = await chrome.tabs.create({ url: DISCORD_LOGIN_URL });
     await chrome.storage.local.set({
-        pendingOfficialLogin: { timestamp: Date.now(), tabId: tab.id }
+        pendingOfficialLogin: { timestamp: startedAt, tabId: tab.id }
     });
     return { success: true };
 }
@@ -296,13 +300,16 @@ async function handleOfficialLoginToken(rawToken) {
                 token: token,
                 invalid: false
             };
-            // Update rootOrder if the existing account's token changed (account may have been referenced by old token)
+            // Update rootOrder if the existing account's token changed (popup.js keys rootOrder by 'account:' + token)
             const oldToken = acc.token;
             if (oldToken && oldToken !== token) {
-                const orderIdx = rootOrder.indexOf(`account-${acc.id}`);
-                if (orderIdx === -1) {
-                    // Ensure account appears in root order
-                    rootOrder.push(`account-${acc.id}`);
+                const oldKey = 'account:' + oldToken;
+                const newKey = 'account:' + token;
+                const orderIdx = rootOrder.indexOf(oldKey);
+                if (orderIdx !== -1) {
+                    rootOrder[orderIdx] = newKey;
+                } else if (!acc.folderId && !rootOrder.includes(newKey)) {
+                    rootOrder.push(newKey);
                 }
             }
         } else {
@@ -335,8 +342,11 @@ async function handleOfficialLoginToken(rawToken) {
                 invalid: false
             };
             accounts.push(newAccount);
-            // Add new account to root order
-            rootOrder.push(`account-${userData.id}`);
+            // Add new account to root order using popup.js key format
+            const newKey = 'account:' + token;
+            if (!rootOrder.includes(newKey)) {
+                rootOrder.push(newKey);
+            }
         }
 
         // Save account and clear pending state atomically

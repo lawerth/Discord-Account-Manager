@@ -11,7 +11,7 @@ const translations = {
         "addAccount.viaTokenSub": "Paste a token or import from a .txt file",
         "addAccount.viaLogin": "Add via Discord Login",
         "addAccount.viaLoginSub": "Sign in on Discord's official login page",
-        "addAccount.clearNote": "If you're already signed in to Discord in your browser, the current Discord web session (cookies & stored token) will be cleared first, and you'll be redirected to discord.com/login to sign in with the account you want to add.",
+        "addAccount.clearNote": "If you're already signed in to Discord in your browser, the current Discord web session (cookies) will be cleared first, and you'll be redirected to discord.com/login to sign in with the account you want to add.",
         "addAccount.openingLogin": "Opening Discord Login...",
         "actions.deleteAll": "Delete All",
         "actions.dragReorder": "Drag to reorder",

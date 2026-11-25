@@ -1,0 +1,10 @@
+# Local development
+dev/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Packaged release archives
+*.zip

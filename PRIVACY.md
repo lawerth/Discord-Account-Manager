@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last Updated:** September 21, 2026
+**Last Updated:** November 25, 2026
 
 Account Manager for Discord is committed to protecting your privacy. This extension operates with a strict "local-first" principle.
 
@@ -10,7 +10,7 @@ All data handled by this extension is stored exclusively on your local device wi
 
 The extension processes the following data solely to provide account management features:
 - **Authentication Credentials:** Discord tokens provided by the user or imported from the active local session are stored locally to facilitate switching between your accounts.
-- **Profile & Metadata:** Usernames, display names, user IDs, avatars, banners, accent colors, Nitro status, tenure badges, and organization folders are stored locally to display your accounts in the interface.
+- **Profile & Metadata:** Usernames, display names, user IDs, avatars, banners, accent colors, Nitro status, profile and tenure badges (including tier and quest progress), and organization folders are stored locally to display your accounts in the interface.
 - **Account Status Information:** Verified email, phone indicator, 2FA status, and locale preferences are fetched directly from Discord's official API (`discord.com/api`) and stored locally for account detail display.
 
 ### 2. Third-Party Sharing & Telemetry

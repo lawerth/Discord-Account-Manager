@@ -197,34 +197,78 @@ function sanitizeOfficialToken(raw) {
     return (clean.length > 20 && !clean.includes(' ')) ? clean : null;
 }
 
-function extractGiftingFromBadges(badgesData) {
+function extractBadgesInventory(badgesData) {
     const list = badgesData && Array.isArray(badgesData.badges) ? badgesData.badges : [];
-    const giftBadge = list.find(b => b && b.badge_id === 17);
-    if (!giftBadge || !giftBadge.owned) {
-        return { gifting_tier: 0, gifting_count: 0 };
-    }
-    const progressEntry = Array.isArray(giftBadge.progress) ? giftBadge.progress[0] : null;
-    const count = (progressEntry && typeof progressEntry.current === 'number') ? progressEntry.current : 0;
+    const badge_items = [];
+    let gifting_tier = 0;
+    let gifting_count = 0;
 
-    let tier = 0;
-    if (Array.isArray(giftBadge.tiers) && giftBadge.tiers.length > 0) {
-        if (giftBadge.current_tier) {
-            const idx = giftBadge.tiers.findIndex(t => t && t.key === giftBadge.current_tier);
-            if (idx !== -1) tier = idx + 1;
+    for (const b of list) {
+        if (!b || !b.owned || b.badge_id === 23) continue;
+
+        const progressEntry = Array.isArray(b.progress) ? b.progress[0] : null;
+        let current = (progressEntry && typeof progressEntry.current === 'number') ? progressEntry.current : null;
+        if (current === null && (b.badge_id === 14 || b.badge_id === 15) && typeof b.info_label === 'string') {
+            const numMatch = b.info_label.match(/\d[\d.,\s\u00a0]*/);
+            if (numMatch) {
+                const parsed = parseInt(numMatch[0].replace(/[.,\s\u00a0]/g, ''), 10);
+                if (!isNaN(parsed)) current = parsed;
+            }
         }
-        if (tier === 0) {
-            tier = giftBadge.tiers.reduce((max, t, idx) => (t && t.owned ? idx + 1 : max), 0);
+
+        let tierIdx = 0;
+        if (Array.isArray(b.tiers) && b.tiers.length > 0) {
+            if (b.current_tier) {
+                const idx = b.tiers.findIndex(t => t && t.key === b.current_tier);
+                if (idx !== -1) tierIdx = idx + 1;
+            }
+            if (tierIdx === 0) {
+                tierIdx = b.tiers.reduce((max, t, idx) => (t && t.owned ? idx + 1 : max), 0);
+            }
+        }
+
+        const item = {
+            id: b.badge_id,
+            hidden: !!b.hidden
+        };
+        if (b.current_tier) item.tier = b.current_tier;
+        if (tierIdx > 0) item.tier_idx = tierIdx;
+        if (current !== null) item.current = current;
+        if (b.obtained_at) item.obtained_at = b.obtained_at;
+        if (typeof b.rarity === 'number') item.rarity = b.rarity;
+
+        const tierUnlockedAt = (b.tier_obtained_at && b.current_tier && b.tier_obtained_at[b.current_tier])
+            ? b.tier_obtained_at[b.current_tier]
+            : null;
+        if (tierUnlockedAt && tierUnlockedAt !== b.obtained_at) {
+            item.tier_unlocked_at = tierUnlockedAt;
+        }
+
+        if (progressEntry) {
+            const prog = {};
+            if (typeof progressEntry.floor === 'number') prog.floor = progressEntry.floor;
+            if (typeof progressEntry.threshold === 'number') prog.threshold = progressEntry.threshold;
+            if (progressEntry.unit) prog.unit = progressEntry.unit;
+            if (Object.keys(prog).length > 0) item.progress = prog;
+        }
+
+        badge_items.push(item);
+
+        if (b.badge_id === 17) {
+            gifting_count = current !== null ? current : 0;
+            gifting_tier = tierIdx;
+            if (gifting_tier === 0 && gifting_count >= 1) {
+                if (gifting_count >= 20) gifting_tier = 6;
+                else if (gifting_count >= 10) gifting_tier = 5;
+                else if (gifting_count >= 6) gifting_tier = 4;
+                else if (gifting_count >= 3) gifting_tier = 3;
+                else if (gifting_count >= 2) gifting_tier = 2;
+                else gifting_tier = 1;
+            }
         }
     }
-    if (tier === 0 && count >= 1) {
-        if (count >= 20) tier = 6;
-        else if (count >= 10) tier = 5;
-        else if (count >= 6) tier = 4;
-        else if (count >= 3) tier = 3;
-        else if (count >= 2) tier = 2;
-        else tier = 1;
-    }
-    return { gifting_tier: tier, gifting_count: count };
+
+    return { gifting_tier, gifting_count, badge_items };
 }
 
 function resolveGiftingField(userData, existingAcc, field) {
@@ -234,64 +278,48 @@ function resolveGiftingField(userData, existingAcc, field) {
     return existingAcc ? (existingAcc[field] || 0) : 0;
 }
 
-function buildAccountData(userData, token, existingAcc, folderId) {
-    if (existingAcc) {
-        return {
-            ...existingAcc,
-            _profileChecked: true,
-            _profileVersion: 4,
-            username: userData.username,
-            global_name: userData.global_name,
-            avatar: userData.avatar,
-            banner: userData.banner !== undefined ? userData.banner : (existingAcc.banner || null),
-            banner_color: userData.banner_color !== undefined ? userData.banner_color : (existingAcc.banner_color || null),
-            accent_color: userData.accent_color !== undefined ? userData.accent_color : (existingAcc.accent_color !== undefined ? existingAcc.accent_color : null),
-            email: userData.email || existingAcc.email || null,
-            phone: userData.phone || existingAcc.phone || null,
-            verified: userData.verified !== undefined ? !!userData.verified : (existingAcc.verified || false),
-            mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (existingAcc.mfa_enabled || false),
-            locale: userData.locale || existingAcc.locale || null,
-            premium_type: userData.premium_type,
-            premium_since: userData._profileFailed ? (existingAcc.premium_since || null) : (userData.premium_since || null),
-            premium_guild_since: userData._profileFailed ? (existingAcc.premium_guild_since || null) : (userData.premium_guild_since || null),
-            legacy_username: userData._profileFailed ? (existingAcc.legacy_username || null) : (userData.legacy_username || null),
-            badges: userData._profileFailed ? (existingAcc.badges || []) : (userData.badges || []),
-            gifting_count: resolveGiftingField(userData, existingAcc, 'gifting_count'),
-            gifting_tier: resolveGiftingField(userData, existingAcc, 'gifting_tier'),
-            flags: userData.flags,
-            public_flags: userData.public_flags,
-            token: token,
-            folderId: folderId || existingAcc.folderId || null,
-            invalid: false
-        };
+function resolveBadgeItems(userData, existingAcc) {
+    if (userData && !userData._badgesFetchFailed && Array.isArray(userData.badge_items)) {
+        return userData.badge_items;
     }
+    return (existingAcc && Array.isArray(existingAcc.badge_items)) ? existingAcc.badge_items : null;
+}
+
+function buildAccountData(userData, token, existingAcc, folderId) {
+    const base = existingAcc || {};
+    const profileFailed = !!userData._profileFailed;
+    const resolvedFolderId = folderId !== undefined
+        ? (folderId || base.folderId || null)
+        : (base.folderId || null);
 
     return {
-        id: userData.id,
+        ...base,
+        id: userData.id || base.id,
         _profileChecked: true,
-        _profileVersion: 4,
+        _profileVersion: 6,
         username: userData.username,
         global_name: userData.global_name,
         avatar: userData.avatar,
-        banner: userData.banner || null,
-        banner_color: userData.banner_color || null,
-        accent_color: userData.accent_color !== undefined ? userData.accent_color : null,
-        email: userData.email || null,
-        phone: userData.phone || null,
-        verified: !!userData.verified,
-        mfa_enabled: !!userData.mfa_enabled,
-        locale: userData.locale || null,
+        banner: userData.banner !== undefined ? userData.banner : (base.banner || null),
+        banner_color: userData.banner_color !== undefined ? userData.banner_color : (base.banner_color || null),
+        accent_color: userData.accent_color !== undefined ? userData.accent_color : (base.accent_color !== undefined ? base.accent_color : null),
+        email: userData.email || base.email || null,
+        phone: userData.phone || base.phone || null,
+        verified: userData.verified !== undefined ? !!userData.verified : (base.verified || false),
+        mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (base.mfa_enabled || false),
+        locale: userData.locale || base.locale || null,
         premium_type: userData.premium_type,
-        premium_since: userData._profileFailed ? null : (userData.premium_since || null),
-        premium_guild_since: userData._profileFailed ? null : (userData.premium_guild_since || null),
-        legacy_username: userData._profileFailed ? null : (userData.legacy_username || null),
-        badges: userData._profileFailed ? [] : (userData.badges || []),
-        gifting_count: resolveGiftingField(userData, null, 'gifting_count'),
-        gifting_tier: resolveGiftingField(userData, null, 'gifting_tier'),
+        premium_since: profileFailed ? (base.premium_since || null) : (userData.premium_since || null),
+        premium_guild_since: profileFailed ? (base.premium_guild_since || null) : (userData.premium_guild_since || null),
+        legacy_username: profileFailed ? (base.legacy_username || null) : (userData.legacy_username || null),
+        badges: profileFailed ? (base.badges || []) : (userData.badges || []),
+        badge_items: resolveBadgeItems(userData, existingAcc),
+        gifting_count: resolveGiftingField(userData, existingAcc, 'gifting_count'),
+        gifting_tier: resolveGiftingField(userData, existingAcc, 'gifting_tier'),
         flags: userData.flags,
         public_flags: userData.public_flags,
         token: token,
-        folderId: folderId || null,
+        folderId: resolvedFolderId,
         invalid: false
     };
 }
@@ -638,32 +666,7 @@ async function refreshAccount(token, accId) {
     const idx = accounts.findIndex(a => a.id === accId || a.token === token);
 
     if (idx !== -1) {
-        const acc = accounts[idx];
-        accounts[idx] = {
-            ...acc,
-            username: userData.username,
-            global_name: userData.global_name,
-            avatar: userData.avatar,
-            banner: userData.banner !== undefined ? userData.banner : (acc.banner || null),
-            banner_color: userData.banner_color !== undefined ? userData.banner_color : (acc.banner_color || null),
-            accent_color: userData.accent_color !== undefined ? userData.accent_color : (acc.accent_color !== undefined ? acc.accent_color : null),
-            email: userData.email || acc.email || null,
-            phone: userData.phone || acc.phone || null,
-            verified: userData.verified !== undefined ? !!userData.verified : (acc.verified || false),
-            mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (acc.mfa_enabled || false),
-            locale: userData.locale || acc.locale || null,
-            premium_type: userData.premium_type,
-            flags: userData.flags,
-            public_flags: userData.public_flags,
-            invalid: false,
-            _profileChecked: true,
-            premium_since: userData._profileFailed ? (acc.premium_since || null) : (userData.premium_since || null),
-            premium_guild_since: userData._profileFailed ? (acc.premium_guild_since || null) : (userData.premium_guild_since || null),
-            legacy_username: userData._profileFailed ? (acc.legacy_username || null) : (userData.legacy_username || null),
-            badges: userData._profileFailed ? (acc.badges || []) : (userData.badges || []),
-            gifting_count: resolveGiftingField(userData, acc, 'gifting_count'),
-            gifting_tier: resolveGiftingField(userData, acc, 'gifting_tier')
-        };
+        accounts[idx] = buildAccountData(userData, token, accounts[idx], null);
         await chrome.storage.local.set({ discordAccounts: accounts });
     }
 }
@@ -755,7 +758,7 @@ async function validateToken(rawToken, externalSignal) {
                         browser_version: chromeMatch ? chromeMatch[1] : '130.0.0.0',
                         os_version: '10',
                         release_channel: 'stable',
-                        client_build_number: 679463,
+                        client_build_number: 679963,
                         client_event_source: null
                     };
                     return btoa(JSON.stringify(payload));
@@ -766,6 +769,7 @@ async function validateToken(rawToken, externalSignal) {
                         const badgesRes = await fetch('https://discord.com/api/v9/users/%40me/badges', {
                             headers: {
                                 'Authorization': token,
+                                'Accept-Language': 'en-US,en;q=0.9',
                                 'X-Super-Properties': getSuperProperties()
                             },
                             signal: timeoutController.signal
@@ -798,9 +802,10 @@ async function validateToken(rawToken, externalSignal) {
                 }
 
                 if (badgesData && Array.isArray(badgesData.badges)) {
-                    const gifting = extractGiftingFromBadges(badgesData);
-                    data.gifting_tier = gifting.gifting_tier;
-                    data.gifting_count = gifting.gifting_count;
+                    const inv = extractBadgesInventory(badgesData);
+                    data.gifting_tier = inv.gifting_tier;
+                    data.gifting_count = inv.gifting_count;
+                    data.badge_items = inv.badge_items;
                     data._badgesFetchFailed = false;
                 } else {
                     data._badgesFetchFailed = true;
@@ -896,55 +901,30 @@ async function startCheck() {
             } else if (result.valid) {
                 validCount++;
                 const currentAcc = accounts[i];
-                const finalBadges = userData._profileFailed ? (currentAcc.badges || []) : (userData.badges || []);
-                const finalGuildSince = userData._profileFailed ? (currentAcc.premium_guild_since || null) : (userData.premium_guild_since || null);
-                const finalSince = userData._profileFailed ? (currentAcc.premium_since || null) : (userData.premium_since || null);
-                const finalLegacy = userData._profileFailed ? (currentAcc.legacy_username || null) : (userData.legacy_username || null);
-                const finalGiftCount = resolveGiftingField(userData, currentAcc, 'gifting_count');
-                const finalGiftTier = resolveGiftingField(userData, currentAcc, 'gifting_tier');
+                const nextAcc = buildAccountData(userData, currentAcc.token, currentAcc, null);
 
                 const oldBadgesJson = JSON.stringify(currentAcc.badges || []);
-                const newBadgesJson = JSON.stringify(finalBadges);
+                const newBadgesJson = JSON.stringify(nextAcc.badges || []);
+                const oldItemsJson = JSON.stringify(currentAcc.badge_items || null);
+                const newItemsJson = JSON.stringify(nextAcc.badge_items || null);
 
                 if (currentAcc.invalid !== false ||
-                    currentAcc.username !== userData.username ||
-                    currentAcc.global_name !== userData.global_name ||
-                    currentAcc.avatar !== userData.avatar ||
-                    currentAcc.premium_type !== userData.premium_type ||
-                    currentAcc.premium_since !== finalSince ||
-                    currentAcc.premium_guild_since !== finalGuildSince ||
-                    currentAcc.flags !== userData.flags ||
-                    currentAcc.public_flags !== userData.public_flags ||
-                    currentAcc.gifting_count !== finalGiftCount ||
-                    currentAcc.gifting_tier !== finalGiftTier ||
+                    currentAcc._profileVersion !== nextAcc._profileVersion ||
+                    currentAcc.username !== nextAcc.username ||
+                    currentAcc.global_name !== nextAcc.global_name ||
+                    currentAcc.avatar !== nextAcc.avatar ||
+                    currentAcc.premium_type !== nextAcc.premium_type ||
+                    currentAcc.premium_since !== nextAcc.premium_since ||
+                    currentAcc.premium_guild_since !== nextAcc.premium_guild_since ||
+                    currentAcc.flags !== nextAcc.flags ||
+                    currentAcc.public_flags !== nextAcc.public_flags ||
+                    currentAcc.gifting_count !== nextAcc.gifting_count ||
+                    currentAcc.gifting_tier !== nextAcc.gifting_tier ||
                     oldBadgesJson !== newBadgesJson ||
-                    currentAcc.legacy_username !== finalLegacy) {
+                    oldItemsJson !== newItemsJson ||
+                    currentAcc.legacy_username !== nextAcc.legacy_username) {
 
-                    accounts[i] = {
-                        ...currentAcc,
-                        invalid: false,
-                        username: userData.username,
-                        global_name: userData.global_name,
-                        avatar: userData.avatar,
-                        banner: userData.banner !== undefined ? userData.banner : (currentAcc.banner || null),
-                        banner_color: userData.banner_color !== undefined ? userData.banner_color : (currentAcc.banner_color || null),
-                        accent_color: userData.accent_color !== undefined ? userData.accent_color : (currentAcc.accent_color !== undefined ? currentAcc.accent_color : null),
-                        email: userData.email || currentAcc.email || null,
-                        phone: userData.phone || currentAcc.phone || null,
-                        verified: userData.verified !== undefined ? !!userData.verified : (currentAcc.verified || false),
-                        mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (currentAcc.mfa_enabled || false),
-                        locale: userData.locale || currentAcc.locale || null,
-                        premium_type: userData.premium_type,
-                        premium_since: finalSince,
-                        premium_guild_since: finalGuildSince,
-                        legacy_username: finalLegacy,
-                        badges: finalBadges,
-                        gifting_count: finalGiftCount,
-                        gifting_tier: finalGiftTier,
-                        flags: userData.flags,
-                        public_flags: userData.public_flags,
-                        _profileChecked: true
-                    };
+                    accounts[i] = nextAcc;
                     hasChanges = true;
                 }
             }

@@ -31,7 +31,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     const progressText = document.getElementById('progressText');
     const progressCount = document.getElementById('progressCount');
     const showBadgesToggle = document.getElementById('showBadgesToggle');
+    const visibleBadgesCountRow = document.getElementById('visibleBadgesCountRow');
+    const decreaseVisibleBadgesBtn = document.getElementById('decreaseVisibleBadgesBtn');
+    const increaseVisibleBadgesBtn = document.getElementById('increaseVisibleBadgesBtn');
+    const visibleBadgesCountValue = document.getElementById('visibleBadgesCountValue');
+    const DEFAULT_VISIBLE_BADGES = 6;
+    const MIN_VISIBLE_BADGES = 3;
+    const MAX_VISIBLE_BADGES = 6;
     let showBadges = true;
+    let maxVisibleBadges = DEFAULT_VISIBLE_BADGES;
+
+    function clampVisibleBadgesCount(val) {
+        const parsed = parseInt(val, 10);
+        if (!Number.isFinite(parsed)) return DEFAULT_VISIBLE_BADGES;
+        return Math.min(MAX_VISIBLE_BADGES, Math.max(MIN_VISIBLE_BADGES, parsed));
+    }
+
+    function updateVisibleBadgesSettingUI() {
+        if (visibleBadgesCountRow) {
+            visibleBadgesCountRow.hidden = !showBadges;
+        }
+        if (visibleBadgesCountValue) {
+            visibleBadgesCountValue.textContent = String(maxVisibleBadges);
+        }
+        if (decreaseVisibleBadgesBtn) {
+            decreaseVisibleBadgesBtn.disabled = maxVisibleBadges <= MIN_VISIBLE_BADGES;
+        }
+        if (increaseVisibleBadgesBtn) {
+            increaseVisibleBadgesBtn.disabled = maxVisibleBadges >= MAX_VISIBLE_BADGES;
+        }
+    }
 
     const tokenFolderSelect = document.getElementById('tokenFolderSelect');
     const customTokenFolderSelect = document.getElementById('customTokenFolderSelect');
@@ -60,6 +89,48 @@ document.addEventListener('DOMContentLoaded', async () => {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function applyUserDataToAccount(existing, userData, token, folderId) {
+        const base = existing || {};
+        const profileFailed = !!userData._profileFailed;
+        const badgesFetchFailed = !!userData._badgesFetchFailed;
+        const resolvedFolderId = folderId !== undefined
+            ? (folderId || base.folderId || null)
+            : (base.folderId || null);
+
+        return {
+            ...base,
+            id: userData.id || base.id,
+            _profileChecked: true,
+            _profileVersion: 6,
+            username: userData.username,
+            global_name: userData.global_name,
+            avatar: userData.avatar,
+            banner: userData.banner !== undefined ? userData.banner : (base.banner || null),
+            banner_color: userData.banner_color !== undefined ? userData.banner_color : (base.banner_color || null),
+            accent_color: userData.accent_color !== undefined ? userData.accent_color : (base.accent_color !== undefined ? base.accent_color : null),
+            email: userData.email || base.email || null,
+            phone: userData.phone || base.phone || null,
+            verified: userData.verified !== undefined ? !!userData.verified : (base.verified || false),
+            mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (base.mfa_enabled || false),
+            locale: userData.locale || base.locale || null,
+            premium_type: userData.premium_type,
+            premium_since: profileFailed ? (base.premium_since || null) : (userData.premium_since || null),
+            premium_guild_since: profileFailed ? (base.premium_guild_since || null) : (userData.premium_guild_since || null),
+            legacy_username: profileFailed ? (base.legacy_username || null) : (userData.legacy_username || null),
+            badges: profileFailed ? (base.badges || []) : (userData.badges || []),
+            badge_items: (!badgesFetchFailed && Array.isArray(userData.badge_items))
+                ? userData.badge_items
+                : (Array.isArray(base.badge_items) ? base.badge_items : null),
+            gifting_count: (!badgesFetchFailed && typeof userData.gifting_count === 'number') ? userData.gifting_count : (base.gifting_count || 0),
+            gifting_tier: (!badgesFetchFailed && typeof userData.gifting_tier === 'number') ? userData.gifting_tier : (base.gifting_tier || 0),
+            flags: userData.flags,
+            public_flags: userData.public_flags,
+            token: token,
+            folderId: resolvedFolderId,
+            invalid: false
+        };
     }
 
     document.addEventListener('keydown', (e) => {
@@ -205,25 +276,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 const existingIndex = accounts.findIndex(a => a.id === userData.id || a.token === token);
                                 let newAccounts = [...accounts];
                                 if (existingIndex !== -1) {
-                                    newAccounts[existingIndex] = {
-                                        ...newAccounts[existingIndex],
-                                        _profileChecked: true,
-                                        _profileVersion: 4,
-                                        username: userData.username,
-                                        global_name: userData.global_name,
-                                        avatar: userData.avatar,
-                                        premium_type: userData.premium_type,
-                                        premium_since: userData.premium_since || null,
-                                        premium_guild_since: userData.premium_guild_since || null,
-                                        legacy_username: userData.legacy_username || null,
-                                        badges: userData.badges || [],
-                                        gifting_count: userData.gifting_count !== undefined ? userData.gifting_count : (newAccounts[existingIndex].gifting_count || 0),
-                                        gifting_tier: userData.gifting_tier !== undefined ? userData.gifting_tier : (newAccounts[existingIndex].gifting_tier || 0),
-                                        flags: userData.flags,
-                                        public_flags: userData.public_flags,
-                                        token: token,
-                                        invalid: false
-                                    };
+                                    newAccounts[existingIndex] = applyUserDataToAccount(newAccounts[existingIndex], userData, token);
                                 }
                                 await saveAccounts(newAccounts);
                                 addCurrentAccountBtn.textContent = getTranslation('actions.updated') || 'Updated!';
@@ -256,46 +309,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 let newAccounts;
                                 if (existingIndex !== -1) {
                                     newAccounts = [...accounts];
-                                    newAccounts[existingIndex] = {
-                                        ...newAccounts[existingIndex],
-                                        _profileChecked: true,
-                                        _profileVersion: 4,
-                                        username: userData.username,
-                                        global_name: userData.global_name,
-                                        avatar: userData.avatar,
-                                        premium_type: userData.premium_type,
-                                        premium_since: userData.premium_since || null,
-                                        premium_guild_since: userData.premium_guild_since || null,
-                                        legacy_username: userData.legacy_username || null,
-                                        badges: userData.badges || [],
-                                        gifting_count: userData.gifting_count !== undefined ? userData.gifting_count : (newAccounts[existingIndex].gifting_count || 0),
-                                        gifting_tier: userData.gifting_tier !== undefined ? userData.gifting_tier : (newAccounts[existingIndex].gifting_tier || 0),
-                                        flags: userData.flags,
-                                        public_flags: userData.public_flags,
-                                        token: token,
-                                        invalid: false
-                                    };
+                                    newAccounts[existingIndex] = applyUserDataToAccount(newAccounts[existingIndex], userData, token);
                                 } else {
-                                    newAccounts = [...accounts, {
-                                        id: userData.id,
-                                        _profileChecked: true,
-                                        _profileVersion: 4,
-                                        username: userData.username,
-                                        global_name: userData.global_name,
-                                        avatar: userData.avatar,
-                                        premium_type: userData.premium_type,
-                                        premium_since: userData.premium_since || null,
-                                        premium_guild_since: userData.premium_guild_since || null,
-                                        legacy_username: userData.legacy_username || null,
-                                        badges: userData.badges || [],
-                                        gifting_count: userData.gifting_count || 0,
-                                        gifting_tier: userData.gifting_tier || 0,
-                                        flags: userData.flags,
-                                        public_flags: userData.public_flags,
-                                        token: token,
-                                        folderId: null,
-                                        invalid: false
-                                    }];
+                                    newAccounts = [...accounts, applyUserDataToAccount(null, userData, token, null)];
                                 }
                                 await saveAccounts(newAccounts);
                                 checkActiveDiscordTab();
@@ -344,7 +360,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function loadInitialData() {
         return new Promise((resolve) => {
-            chrome.storage.local.get(['discordAccounts', 'discordFolders', 'collapsedFolders', 'selectedTheme', 'selectedLanguage', 'showBadges', 'discordRootOrder'], async function (result) {
+            chrome.storage.local.get(['discordAccounts', 'discordFolders', 'collapsedFolders', 'selectedTheme', 'selectedLanguage', 'showBadges', 'maxVisibleBadges', 'discordRootOrder'], async function (result) {
                 let activeLang = result.selectedLanguage;
                 if (!activeLang) {
                     activeLang = detectSystemLanguage();
@@ -370,6 +386,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (showBadgesToggle) {
                     showBadgesToggle.checked = showBadges;
                 }
+                maxVisibleBadges = clampVisibleBadgesCount(result.maxVisibleBadges);
+                updateVisibleBadgesSettingUI();
 
                 accounts = result.discordAccounts || [];
                 folders = (result.discordFolders || []).map(({ isEditing, menuOpen, ...rest }) => rest);
@@ -427,7 +445,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 listContainer.classList.add('initial-load');
-                renderAccounts();
+                renderAccounts(true);
 
                 chrome.storage.local.get([
                     'isChecking', 'checkProgress', 'checkTarget', 'checkCount', 'checkResults',
@@ -446,10 +464,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
 
                 checkActiveDiscordTab();
+                queueStaleBadgeUpgrades();
 
                 setTimeout(() => {
-                    listContainer.classList.remove('initial-load');
-                }, 1000);
+                    if (listContainer) listContainer.classList.remove('initial-load');
+                }, 450);
 
                 resolve();
             });
@@ -604,13 +623,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (showBadgesToggle) {
         showBadgesToggle.addEventListener('change', () => {
             showBadges = showBadgesToggle.checked;
+            updateVisibleBadgesSettingUI();
             if (!showBadges) {
-                hideBadgesPopover(0);
+                hideBadgeHoverCard();
+                closeBadgesModal();
             }
             chrome.storage.local.set({ showBadges: showBadges }, () => {
                 renderAccounts();
             });
         });
+    }
+
+    function adjustVisibleBadgesCount(delta) {
+        const nextCount = clampVisibleBadgesCount(maxVisibleBadges + delta);
+        if (nextCount === maxVisibleBadges) return;
+        maxVisibleBadges = nextCount;
+        updateVisibleBadgesSettingUI();
+        chrome.storage.local.set({ maxVisibleBadges: maxVisibleBadges }, () => {
+            renderAccounts();
+        });
+    }
+
+    if (decreaseVisibleBadgesBtn) {
+        decreaseVisibleBadgesBtn.addEventListener('click', () => adjustVisibleBadgesCount(-1));
+    }
+    if (increaseVisibleBadgesBtn) {
+        increaseVisibleBadgesBtn.addEventListener('click', () => adjustVisibleBadgesCount(1));
     }
 
     function saveAccounts(newAccounts) {
@@ -812,9 +850,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const minAllowedTop = header ? header.getBoundingClientRect().bottom + 8 : 10;
 
+        folderMenu.classList.remove('open-up');
         if (menuRect.bottom > maxAllowedBottom) {
             folderMenu.style.top = 'auto';
             folderMenu.style.bottom = 'calc(100% + 8px)';
+            folderMenu.classList.add('open-up');
 
             const flippedRect = folderMenu.getBoundingClientRect();
             if (flippedRect.top < minAllowedTop) {
@@ -889,15 +929,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 
-    function closeAllFolderMenus() {
+    function closeAllFolderMenus(exceptActions = null) {
+        const exceptFolderId = exceptActions && exceptActions.closest ? (exceptActions.closest('.folder-container')?.dataset.id || null) : null;
         folders.forEach(f => {
-            delete f.menuOpen;
+            if (!exceptFolderId || f.id !== exceptFolderId) {
+                delete f.menuOpen;
+            }
         });
         listContainer.querySelectorAll('.folder-actions.open').forEach(el => {
-            el.classList.remove('open');
+            if (el !== exceptActions) {
+                el.classList.remove('open');
+            }
         });
         listContainer.querySelectorAll('.folder-menu.open').forEach(el => {
-            el.classList.remove('open');
+            if (!exceptActions || !exceptActions.contains(el)) {
+                el.classList.remove('open', 'open-up');
+            }
         });
     }
 
@@ -926,8 +973,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    function renderAccounts() {
+    function renderAccounts(isInitial = false) {
         const savedScrollTop = listContainer ? listContainer.scrollTop : 0;
+        if (!isInitial && listContainer) {
+            listContainer.classList.remove('initial-load');
+        }
         listContainer.innerHTML = '';
         listContainer.classList.toggle('is-searching', searchQuery.trim() !== '');
 
@@ -1003,7 +1053,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         ${count > 0 ? `<span class="folder-count">${count}</span>` : ''}
                     </div>
                     <div class="folder-actions${folder.menuOpen ? ' open' : ''}">
-                        <button class="icon-btn folder-menu-btn" title="${getTranslation('folder.options')}">
+                        <button class="icon-btn folder-menu-btn" aria-label="${escapeHtml(getTranslation('folder.options'))}">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                 <circle cx="5" cy="12" r="1.5"></circle>
                                 <circle cx="12" cy="12" r="1.5"></circle>
@@ -1035,37 +1085,56 @@ document.addEventListener('DOMContentLoaded', async () => {
             const folderHeader = folderContainer.querySelector('.folder-header');
             const folderContent = folderContainer.querySelector('.folder-content');
 
+            const folderActions = folderContainer.querySelector('.folder-actions');
             const folderMenuBtn = folderContainer.querySelector('.folder-menu-btn');
             const folderMenu = folderContainer.querySelector('.folder-menu');
 
+            if (folderActions) {
+                folderActions.addEventListener('pointerdown', (e) => e.stopPropagation());
+                folderActions.addEventListener('mousedown', (e) => e.stopPropagation());
+            }
+
+            folderMenuBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            folderMenuBtn.addEventListener('mousedown', (e) => e.stopPropagation());
             folderMenuBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                const isOpening = !folderActions.classList.contains('open');
+                closeAllFolderMenus(isOpening ? folderActions : null);
                 closeAllAccountMenus();
-                hideBadgesPopover(0);
+                hideBadgeHoverCard();
                 document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);
+
                 folders.forEach(f => {
                     if (f.id === folder.id) {
-                        f.menuOpen = !f.menuOpen;
+                        if (isOpening) f.menuOpen = true;
+                        else delete f.menuOpen;
                     } else {
                         delete f.menuOpen;
                     }
                 });
-                renderAccounts();
-                setTimeout(() => {
-                    const newFolderContainer = listContainer.querySelector(`.folder-container[data-id="${folder.id}"]`);
-                    const newFolderMenu = newFolderContainer ? newFolderContainer.querySelector('.folder-menu') : null;
-                    if (newFolderMenu && newFolderMenu.classList.contains('open')) {
-                        adjustFolderMenuPosition(newFolderContainer, newFolderMenu);
-                        const input = newFolderContainer.querySelector('.folder-name-input');
+
+                if (isOpening) {
+                    folderActions.classList.add('open');
+                    if (folderMenu) {
+                        folderMenu.classList.add('open');
+                        adjustFolderMenuPosition(folderContainer, folderMenu);
+                        const input = folderMenu.querySelector('.folder-name-input');
                         if (input) {
                             input.focus({ preventScroll: true });
                             input.setSelectionRange(input.value.length, input.value.length);
                         }
                     }
-                }, 0);
+                } else {
+                    folderActions.classList.remove('open');
+                    if (folderMenu) {
+                        folderMenu.classList.remove('open', 'open-up');
+                    }
+                }
             });
 
             if (folderMenu) {
+                folderMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
+                folderMenu.addEventListener('mousedown', (e) => e.stopPropagation());
                 folderMenu.addEventListener('click', (e) => {
                     e.stopPropagation();
                 });
@@ -1203,562 +1272,1672 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    function getNitroBadgeInfo(acc) {
+    const BADGE_LOCALE_MAP = {
+        en: 'en-US',
+        tr: 'tr-TR',
+        de: 'de-DE',
+        es: 'es-ES',
+        fr: 'fr-FR',
+        pt: 'pt-BR',
+        ru: 'ru-RU',
+        it: 'it-IT',
+        ja: 'ja-JP',
+        ko: 'ko-KR',
+        pl: 'pl-PL',
+        zh: 'zh-CN',
+        uk: 'uk-UA'
+    };
+
+    function getBadgeLocale() {
+        const langCode = (typeof currentLang !== 'undefined' && currentLang) ? currentLang : 'en';
+        return BADGE_LOCALE_MAP[langCode] || langCode || 'en-US';
+    }
+
+    function formatBadgeCount(num) {
+        try {
+            return new Intl.NumberFormat(getBadgeLocale()).format(num);
+        } catch (e) {
+            return String(num);
+        }
+    }
+
+    function formatBadgeUnit(unit, count) {
+        const locale = getBadgeLocale();
+        let pluralRule = count === 1 ? 'one' : 'other';
+        try {
+            if (typeof Intl !== 'undefined' && Intl.PluralRules) {
+                pluralRule = new Intl.PluralRules(locale).select(count);
+            }
+        } catch (e) { }
+        const specificKey = `badge.unit.${unit}_${pluralRule}`;
+        const fallbackKey = `badge.unit.${unit}_other`;
+        let template = getTranslation(specificKey);
+        if (template === specificKey) {
+            template = getTranslation(fallbackKey);
+        }
+        return template.replace('{count}', formatBadgeCount(count));
+    }
+
+    function getCalendarDiffMonths(startDate, endDate = new Date()) {
+        let months = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+        if (endDate.getDate() < startDate.getDate()) months--;
+        return Math.max(0, months);
+    }
+
+    function getCalendarYearsMonths(startDate, endDate = new Date()) {
+        const totalMonths = getCalendarDiffMonths(startDate, endDate);
+        return {
+            years: Math.floor(totalMonths / 12),
+            months: totalMonths % 12
+        };
+    }
+
+    function getAccountCreatedDateForBadge(acc, invItem) {
+        const userId = getEffectiveUserId(acc);
+        if (userId) {
+            try {
+                const timestampMs = Number((BigInt(userId) >> 22n) + 1420070400000n);
+                const d = new Date(timestampMs);
+                if (!isNaN(d.getTime())) return d;
+            } catch (e) { }
+        }
+        if (invItem && typeof invItem.current === 'number' && invItem.current > 0) {
+            return new Date(Date.now() - invItem.current * 86400000);
+        }
+        return null;
+    }
+
+    function toBadgeUpper(str) {
+        if (!str) return '';
+        try {
+            return String(str).toLocaleUpperCase(getBadgeLocale());
+        } catch (e) {
+            return String(str).toUpperCase();
+        }
+    }
+
+    function addCalendarMonths(startDate, monthsToAdd) {
+        if (!startDate || isNaN(startDate.getTime())) return null;
+        const d = new Date(startDate.getTime());
+        const origDay = d.getDate();
+        d.setMonth(d.getMonth() + monthsToAdd);
+        if (d.getDate() < origDay) d.setDate(0);
+        return d;
+    }
+
+    function formatBadgeSlashDate(dateInput) {
+        if (!dateInput) return '';
+        const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+        if (isNaN(d.getTime())) return '';
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+    }
+
+    function formatBadgeUnlockedDate(dateInput) {
+        return formatBadgeSlashDate(dateInput);
+    }
+
+    function formatMoreRemaining(unit, count) {
+        const tmpl = getTranslation('badge.progressMore') || '{unit} left';
+        return tmpl.replace('{unit}', formatBadgeUnit(unit, count));
+    }
+
+    function formatMilestoneText(unit, count, isPlus = false) {
+        const base = formatBadgeUnit(unit, count);
+        if (!isPlus) return base;
+        const formattedCount = formatBadgeCount(count);
+        if (base.includes(formattedCount)) {
+            return base.replace(formattedCount, `${formattedCount}+`);
+        }
+        return `${base}+`;
+    }
+
+    function computeTimeBadgeProgress(invItem, startDate, currentIdx, tiers) {
+        if (currentIdx >= tiers.length - 1) {
+            return {
+                isMaxed: true,
+                percent: 100,
+                remainingText: '',
+                currentIcon: tiers[tiers.length - 1].icon,
+                nextIcon: null
+            };
+        }
+
+        const curTier = tiers[currentIdx];
+        const nextTier = tiers[currentIdx + 1];
+        let percent = 0;
+        let remainingText = '';
+
+        if (invItem && invItem.progress && typeof invItem.current === 'number' && typeof invItem.progress.threshold === 'number') {
+            const floor = typeof invItem.progress.floor === 'number' ? invItem.progress.floor : 0;
+            const threshold = invItem.progress.threshold;
+            const span = Math.max(1, threshold - floor);
+            percent = Math.max(4, Math.min(98, Math.round(((invItem.current - floor) / span) * 100)));
+            const rem = Math.max(1, threshold - invItem.current);
+            if (invItem.progress.unit === 'days') {
+                if (rem >= 28) {
+                    remainingText = formatMoreRemaining('month', Math.max(1, Math.round(rem / 30)));
+                } else {
+                    remainingText = formatMoreRemaining('day', rem);
+                }
+            } else {
+                remainingText = formatMoreRemaining('month', rem);
+            }
+        } else if (startDate && !isNaN(startDate.getTime())) {
+            const floorDate = addCalendarMonths(startDate, curTier.months || 0);
+            const targetDate = addCalendarMonths(startDate, nextTier.months);
+            if (floorDate && targetDate) {
+                const nowMs = Date.now();
+                const totalMs = Math.max(86400000, targetDate.getTime() - floorDate.getTime());
+                const elapsedMs = Math.max(0, nowMs - floorDate.getTime());
+                percent = Math.max(4, Math.min(98, Math.round((elapsedMs / totalMs) * 100)));
+                const remDays = Math.max(1, Math.ceil((targetDate.getTime() - nowMs) / 86400000));
+                if (remDays >= 28) {
+                    remainingText = formatMoreRemaining('month', Math.max(1, Math.round(remDays / 30)));
+                } else {
+                    remainingText = formatMoreRemaining('day', remDays);
+                }
+            }
+        } else {
+            const diffMonths = Math.max(1, (nextTier.months || 1) - (curTier.months || 0));
+            remainingText = formatMoreRemaining('month', diffMonths);
+            percent = 12;
+        }
+
+        return {
+            isMaxed: false,
+            percent,
+            remainingText,
+            currentIcon: curTier.icon,
+            nextIcon: nextTier.icon
+        };
+    }
+
+    function computeCountBadgeProgress(unit, tiers, currentIdx, currentVal, invItem, createdDate) {
+        if (currentIdx >= tiers.length - 1) {
+            return {
+                isMaxed: true,
+                percent: 100,
+                remainingText: '',
+                currentIcon: tiers[tiers.length - 1].icon,
+                nextIcon: null
+            };
+        }
+
+        const curTier = tiers[currentIdx];
+        const nextTier = tiers[currentIdx + 1];
+        let percent = 10;
+        let remainingText = '';
+
+        if (invItem && invItem.progress && typeof invItem.current === 'number' && typeof invItem.progress.threshold === 'number') {
+            const floor = typeof invItem.progress.floor === 'number' ? invItem.progress.floor : 0;
+            const threshold = invItem.progress.threshold;
+            const span = Math.max(1, threshold - floor);
+            percent = Math.max(4, Math.min(98, Math.round(((invItem.current - floor) / span) * 100)));
+            const rem = Math.max(1, threshold - invItem.current);
+            if (invItem.progress.unit === 'days') {
+                if (rem >= 28) {
+                    remainingText = formatMoreRemaining('month', Math.max(1, Math.round(rem / 30)));
+                } else {
+                    remainingText = formatMoreRemaining('day', rem);
+                }
+            } else {
+                remainingText = formatMoreRemaining(unit, rem);
+            }
+        } else if (unit === 'age' && createdDate && !isNaN(createdDate.getTime())) {
+            const floorDate = addCalendarMonths(createdDate, curTier.min * 12);
+            const targetDate = addCalendarMonths(createdDate, nextTier.min * 12);
+            if (floorDate && targetDate) {
+                const nowMs = Date.now();
+                const totalMs = Math.max(86400000, targetDate.getTime() - floorDate.getTime());
+                const elapsedMs = Math.max(0, nowMs - floorDate.getTime());
+                percent = Math.max(4, Math.min(98, Math.round((elapsedMs / totalMs) * 100)));
+                const remDays = Math.max(1, Math.ceil((targetDate.getTime() - nowMs) / 86400000));
+                if (remDays >= 28) {
+                    remainingText = formatMoreRemaining('month', Math.max(1, Math.round(remDays / 30)));
+                } else {
+                    remainingText = formatMoreRemaining('day', remDays);
+                }
+            }
+        } else {
+            const prevMin = curTier.min || 0;
+            const nextMin = nextTier.min || 1;
+            const val = typeof currentVal === 'number' ? currentVal : prevMin;
+            const span = Math.max(1, nextMin - prevMin);
+            percent = Math.max(4, Math.min(98, Math.round(((val - prevMin) / span) * 100)));
+            remainingText = formatMoreRemaining(unit, Math.max(1, nextMin - val));
+        }
+
+        return {
+            isMaxed: false,
+            percent,
+            remainingText,
+            currentIcon: curTier.icon,
+            nextIcon: nextTier.icon
+        };
+    }
+
+    function extractDateFromDescription(desc) {
+        if (!desc) return null;
+        const m = desc.match(/\b([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}|\d{1,2}\s+[A-Za-zçğıöşüÇĞİÖŞÜ]+\s+\d{4})\b/);
+        return m ? m[1] : null;
+    }
+
+    function isNitroBadgeId(id) {
+        return !!id && (id === 'premium' || id.startsWith('nitro') || id.startsWith('premium_tenure_'));
+    }
+
+    function isBoosterBadgeId(id) {
+        return !!id && (id === 'guild_booster' || id.startsWith('guild_booster'));
+    }
+
+    const NITRO_TIERS = [
+        { key: 'starter', months: 0, rarity: 1, milestone: null, icon: 'assets/badges/nitro/Nitro_Starter.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Starter.webp' },
+        { key: 'bronze', months: 1, rarity: 2, milestone: { unit: 'month', count: 1 }, icon: 'assets/badges/nitro/Nitro_Bronze.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Bronze.webp' },
+        { key: 'silver', months: 3, rarity: 2, milestone: { unit: 'month', count: 3 }, icon: 'assets/badges/nitro/Nitro_Silver.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Silver.webp' },
+        { key: 'gold', months: 6, rarity: 2, milestone: { unit: 'month', count: 6 }, icon: 'assets/badges/nitro/Nitro_Gold.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Gold.webp' },
+        { key: 'platinum', months: 12, rarity: 2, milestone: { unit: 'year', count: 1 }, icon: 'assets/badges/nitro/Nitro_Platinum.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Platinum.webp' },
+        { key: 'diamond', months: 24, rarity: 3, milestone: { unit: 'year', count: 2 }, icon: 'assets/badges/nitro/Nitro_Diamond.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Diamond.webp' },
+        { key: 'emerald', months: 36, rarity: 3, milestone: { unit: 'year', count: 3 }, icon: 'assets/badges/nitro/Nitro_Emerald.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Emerald.webp' },
+        { key: 'ruby', months: 60, rarity: 5, milestone: { unit: 'year', count: 5 }, icon: 'assets/badges/nitro/Nitro_Ruby.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Ruby.webp' },
+        { key: 'opal', months: 72, rarity: 5, milestone: { unit: 'year', count: 6, plus: true }, icon: 'assets/badges/nitro/Nitro_Opal.webp', hoverIcon: 'assets/badges/hover/nitro/Nitro_Opal.webp' }
+    ];
+
+    function getNitroTierIndexFromMonths(months) {
+        for (let i = NITRO_TIERS.length - 1; i >= 0; i--) {
+            if (months >= NITRO_TIERS[i].months) return i;
+        }
+        return 0;
+    }
+
+    function getNitroBadgeInfo(acc, invItem = null, profileBadge = null) {
         if (!acc) return null;
-        if (!acc.premium_type || acc.premium_type === 0) {
-            const badges = acc.badges || [];
-            const hasNitro = badges.some(b => b.id && (b.id === 'premium' || b.id.startsWith('nitro')));
-            if (!hasNitro) return null;
-        }
-
         const badges = acc.badges || [];
-        const nitroBadge = badges.find(b => b.id && (b.id === 'premium' || b.id.startsWith('nitro')));
+        const nitroBadge = profileBadge || badges.find(b => b && isNitroBadgeId(b.id));
 
-        let sinceDate = acc.premium_since;
+        if (!invItem && (!acc.premium_type || acc.premium_type === 0) && !nitroBadge) {
+            return null;
+        }
+
+        let sinceDate = acc.premium_since || (invItem && invItem.obtained_at) || null;
         if (!sinceDate && nitroBadge && nitroBadge.description) {
-            const dateMatch = nitroBadge.description.match(/\b([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}|\d{1,2}\s+[A-Za-zçğıöşüÇĞİÖŞÜ]+\s+\d{4})\b/);
-            if (dateMatch) {
-                sinceDate = dateMatch[1];
-            }
+            sinceDate = extractDateFromDescription(nitroBadge.description);
         }
 
-        let iconName = null;
-        if (nitroBadge && nitroBadge.id && nitroBadge.id !== 'premium' && nitroBadge.id !== 'nitro') {
+        const parsedStart = sinceDate ? new Date(sinceDate) : null;
+        const validStart = (parsedStart && !isNaN(parsedStart.getTime())) ? parsedStart : null;
+
+        let tierIdx = -1;
+        if (invItem && invItem.tier) {
+            const key = invItem.tier === 'basic' ? 'starter' : invItem.tier;
+            tierIdx = NITRO_TIERS.findIndex(t => t.key === key);
+        }
+        if (tierIdx === -1 && nitroBadge && nitroBadge.id) {
             const id = nitroBadge.id;
-            if (id === 'nitro_opal') iconName = 'Nitro_Opal.webp';
-            else if (id === 'nitro_ruby') iconName = 'Nitro_Ruby.webp';
-            else if (id === 'nitro_emerald') iconName = 'Nitro_Emerald.webp';
-            else if (id === 'nitro_diamond') iconName = 'Nitro_Diamond.webp';
-            else if (id === 'nitro_platinum') iconName = 'Nitro_Platinum.webp';
-            else if (id === 'nitro_gold') iconName = 'Nitro_Gold.webp';
-            else if (id === 'nitro_silver') iconName = 'Nitro_Silver.webp';
-            else if (id === 'nitro_bronze') iconName = 'Nitro_Bronze.webp';
-            else if (id === 'nitro_basic') iconName = 'Nitro_Basic.webp';
-        }
-
-        if (!iconName && sinceDate) {
-            const startDate = new Date(sinceDate);
-            if (!isNaN(startDate.getTime())) {
-                const now = new Date();
-                let months = (now.getFullYear() - startDate.getFullYear()) * 12 + (now.getMonth() - startDate.getMonth());
-                if (now.getDate() < startDate.getDate()) months--;
-                if (months < 0) months = 0;
-
-                if (months >= 72) iconName = 'Nitro_Opal.webp';
-                else if (months >= 60) iconName = 'Nitro_Ruby.webp';
-                else if (months >= 36) iconName = 'Nitro_Emerald.webp';
-                else if (months >= 24) iconName = 'Nitro_Diamond.webp';
-                else if (months >= 12) iconName = 'Nitro_Platinum.webp';
-                else if (months >= 6) iconName = 'Nitro_Gold.webp';
-                else if (months >= 3) iconName = 'Nitro_Silver.webp';
-                else if (months >= 1) iconName = 'Nitro_Bronze.webp';
-                else iconName = 'Nitro_Basic.webp';
+            if (id.startsWith('nitro_')) {
+                const rawKey = id.slice(6);
+                const key = rawKey === 'basic' ? 'starter' : rawKey;
+                tierIdx = NITRO_TIERS.findIndex(t => t.key === key);
+            } else {
+                const tenureMatch = id.match(/^premium_tenure_(\d+)_month/);
+                if (tenureMatch) {
+                    tierIdx = getNitroTierIndexFromMonths(parseInt(tenureMatch[1], 10));
+                }
             }
         }
-
-        if (!iconName) {
-            iconName = 'Nitro_Basic.webp';
+        if (tierIdx === -1 && validStart) {
+            tierIdx = getNitroTierIndexFromMonths(getCalendarDiffMonths(validStart));
         }
+        if (tierIdx === -1) tierIdx = 0;
+
+        const currentTier = NITRO_TIERS[tierIdx];
 
         let dateText = getTranslation('badge.nitroSubscriber');
-        if (sinceDate) {
-            const startDate = new Date(sinceDate);
-            if (!isNaN(startDate.getTime())) {
-                const langCode = (typeof currentLang !== 'undefined' && currentLang) ? currentLang : 'tr';
-                const formattedDate = startDate.toLocaleDateString(langCode, {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric'
-                });
-                const template = getTranslation('badge.subscriberSince');
-                dateText = template.replace('{date}', formattedDate);
-            }
+        if (validStart) {
+            const formattedDate = formatBadgeSlashDate(validStart);
+            dateText = getTranslation('badge.subscriberSince').replace('{date}', formattedDate);
         } else if (nitroBadge && nitroBadge.description) {
             dateText = nitroBadge.description;
         }
 
+        const unlockedSource = (invItem && invItem.tier_unlocked_at)
+            || (validStart && currentTier.months > 0 ? addCalendarMonths(validStart, currentTier.months) : null)
+            || (invItem && invItem.obtained_at)
+            || validStart;
+        const unlockedStr = formatBadgeUnlockedDate(unlockedSource);
+        const detailMeta = unlockedStr
+            ? `${dateText} • ${getTranslation('badge.unlockedAt').replace('{date}', unlockedStr)}`
+            : dateText;
+
+        const progress = computeTimeBadgeProgress(invItem, validStart, tierIdx, NITRO_TIERS);
+        const tiers = NITRO_TIERS.map((t, i) => ({
+            key: t.key,
+            label: getTranslation(`badge.tier.nitro.${t.key}`),
+            milestoneText: t.milestone ? formatMilestoneText(t.milestone.unit, t.milestone.count, !!t.milestone.plus) : '',
+            icon: t.icon,
+            unlocked: i <= tierIdx,
+            isCurrent: i === tierIdx
+        }));
+
+        const tierLabel = getTranslation(`badge.tier.nitro.${currentTier.key}`);
+        const hoverTitle = `${getTranslation('badge.nitroTitle')} ${tierLabel}`.trim();
+
         return {
-            icon: `assets/badges/${iconName}`,
-            name: dateText
+            id: 'nitro',
+            icon: currentTier.icon,
+            hoverIcon: currentTier.hoverIcon,
+            isNitroComplex: true,
+            hidden: !!(invItem && invItem.hidden),
+            name: dateText,
+            familyTitle: '',
+            hoverTitle,
+            titleItalic: true,
+            hoverSubtitle: dateText,
+            detailMeta,
+            rarity: (invItem && typeof invItem.rarity === 'number') ? invItem.rarity : currentTier.rarity,
+            isLegacy: false,
+            description: progress.isMaxed ? getTranslation('badge.maxedDesc') : getTranslation('badge.desc.nitro'),
+            progress,
+            tiers
         };
     }
 
-    function getBoosterBadgeInfo(acc) {
+    const BOOSTER_TIERS = [
+        { level: 1, key: 'level_1', months: 1, rarity: 1, icon: 'assets/badges/booster/Guild_Booster_Level_1.webp' },
+        { level: 2, key: 'level_2', months: 2, rarity: 2, icon: 'assets/badges/booster/Guild_Booster_Level_2.webp' },
+        { level: 3, key: 'level_3', months: 3, rarity: 2, icon: 'assets/badges/booster/Guild_Booster_Level_3.webp' },
+        { level: 4, key: 'level_4', months: 6, rarity: 2, icon: 'assets/badges/booster/Guild_Booster_Level_4.webp' },
+        { level: 5, key: 'level_5', months: 9, rarity: 3, icon: 'assets/badges/booster/Guild_Booster_Level_5.webp' },
+        { level: 6, key: 'level_6', months: 12, rarity: 3, icon: 'assets/badges/booster/Guild_Booster_Level_6.webp' },
+        { level: 7, key: 'level_7', months: 15, rarity: 3, icon: 'assets/badges/booster/Guild_Booster_Level_7.webp' },
+        { level: 8, key: 'level_8', months: 18, rarity: 3, icon: 'assets/badges/booster/Guild_Booster_Level_8.webp' },
+        { level: 9, key: 'level_9', months: 24, rarity: 5, plus: true, icon: 'assets/badges/booster/Guild_Booster_Level_9.webp' }
+    ];
+
+    function getBoosterBadgeInfo(acc, invItem = null, profileBadge = null) {
         if (!acc) return null;
         const badges = acc.badges || [];
-        const boosterBadge = badges.find(b => b.id && (b.id === 'guild_booster' || b.id.startsWith('guild_booster')));
+        const boosterBadge = profileBadge || badges.find(b => b && isBoosterBadgeId(b.id));
 
-        if (!boosterBadge && !acc.premium_guild_since) return null;
+        if (!invItem && !boosterBadge && !acc.premium_guild_since) return null;
 
-        let levelIcon = null;
-        if (boosterBadge && boosterBadge.id) {
+        let tierIdx = -1;
+        if (invItem && invItem.tier) {
+            const tierMatch = String(invItem.tier).match(/^level_(\d+)/);
+            if (tierMatch) {
+                const lvl = parseInt(tierMatch[1], 10);
+                if (lvl >= 1 && lvl <= BOOSTER_TIERS.length) tierIdx = lvl - 1;
+            }
+        }
+        if (tierIdx === -1 && invItem && invItem.tier_idx >= 1 && invItem.tier_idx <= BOOSTER_TIERS.length) {
+            tierIdx = invItem.tier_idx - 1;
+        }
+        if (tierIdx === -1 && boosterBadge && boosterBadge.id) {
             const lvlMatch = boosterBadge.id.match(/guild_booster_lvl(\d+)/);
             if (lvlMatch) {
                 const lvl = parseInt(lvlMatch[1], 10);
-                if (lvl >= 1 && lvl <= 9) {
-                    levelIcon = `Guild_Booster_Level_${lvl}.webp`;
+                if (lvl >= 1 && lvl <= BOOSTER_TIERS.length) tierIdx = lvl - 1;
+            }
+        }
+
+        let sinceDate = acc.premium_guild_since || (invItem && invItem.obtained_at) || null;
+        if (!sinceDate && boosterBadge && boosterBadge.description) {
+            sinceDate = extractDateFromDescription(boosterBadge.description);
+        }
+
+        const parsedStart = sinceDate ? new Date(sinceDate) : null;
+        const validStart = (parsedStart && !isNaN(parsedStart.getTime())) ? parsedStart : null;
+
+        if (tierIdx === -1 && validStart) {
+            const months = getCalendarDiffMonths(validStart);
+            for (let i = BOOSTER_TIERS.length - 1; i >= 0; i--) {
+                if (months >= BOOSTER_TIERS[i].months) {
+                    tierIdx = i;
+                    break;
                 }
             }
+            if (tierIdx === -1) tierIdx = 0;
         }
-
-        let sinceDate = acc.premium_guild_since;
-        if (!sinceDate && boosterBadge && boosterBadge.description) {
-            const dateMatch = boosterBadge.description.match(/\b([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}|\d{1,2}\s+[A-Za-zçğıöşüÇĞİÖŞÜ]+\s+\d{4})\b/);
-            if (dateMatch) {
-                sinceDate = dateMatch[1];
-            }
+        if (tierIdx === -1 && (invItem || boosterBadge)) {
+            tierIdx = 0;
         }
+        if (tierIdx === -1) return null;
 
-        if (!levelIcon && sinceDate) {
-            const startDate = new Date(sinceDate);
-            if (!isNaN(startDate.getTime())) {
-                const now = new Date();
-                let months = (now.getFullYear() - startDate.getFullYear()) * 12 + (now.getMonth() - startDate.getMonth());
-                if (now.getDate() < startDate.getDate()) months--;
-                if (months < 0) months = 0;
-
-                if (months >= 24) levelIcon = 'Guild_Booster_Level_9.webp';
-                else if (months >= 18) levelIcon = 'Guild_Booster_Level_8.webp';
-                else if (months >= 15) levelIcon = 'Guild_Booster_Level_7.webp';
-                else if (months >= 12) levelIcon = 'Guild_Booster_Level_6.webp';
-                else if (months >= 9) levelIcon = 'Guild_Booster_Level_5.webp';
-                else if (months >= 6) levelIcon = 'Guild_Booster_Level_4.webp';
-                else if (months >= 3) levelIcon = 'Guild_Booster_Level_3.webp';
-                else if (months >= 2) levelIcon = 'Guild_Booster_Level_2.webp';
-                else levelIcon = 'Guild_Booster_Level_1.webp';
-            }
-        }
-
-        if (!levelIcon && boosterBadge) {
-            levelIcon = 'Guild_Booster_Level_1.webp';
-        }
-
-        if (!levelIcon) return null;
+        const currentTier = BOOSTER_TIERS[tierIdx];
 
         let dateText = getTranslation('badge.boosterSubscriber');
-        if (sinceDate) {
-            const startDate = new Date(sinceDate);
-            if (!isNaN(startDate.getTime())) {
-                const langCode = (typeof currentLang !== 'undefined' && currentLang) ? currentLang : 'tr';
-                const formattedDate = startDate.toLocaleDateString(langCode, {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric'
-                });
-                const template = getTranslation('badge.boosterSince');
-                dateText = template.replace('{date}', formattedDate);
-            }
+        if (validStart) {
+            const formattedDate = formatBadgeSlashDate(validStart);
+            dateText = getTranslation('badge.boosterSince').replace('{date}', formattedDate);
         } else if (boosterBadge && boosterBadge.description) {
             dateText = boosterBadge.description;
         }
 
+        const unlockedSource = (invItem && invItem.tier_unlocked_at)
+            || (validStart ? addCalendarMonths(validStart, currentTier.months) : null)
+            || (invItem && invItem.obtained_at);
+        const unlockedStr = formatBadgeUnlockedDate(unlockedSource);
+        const detailMeta = unlockedStr
+            ? `${dateText} • ${getTranslation('badge.unlockedAt').replace('{date}', unlockedStr)}`
+            : dateText;
+
+        const progress = computeTimeBadgeProgress(invItem, validStart, tierIdx, BOOSTER_TIERS);
+        const tiers = BOOSTER_TIERS.map((t, i) => ({
+            key: t.key,
+            label: '',
+            milestoneText: formatMilestoneText('month', t.months, !!t.plus),
+            icon: t.icon,
+            unlocked: i <= tierIdx,
+            isCurrent: i === tierIdx
+        }));
+
         return {
-            icon: `assets/badges/${levelIcon}`,
-            name: dateText
+            id: 'booster',
+            icon: currentTier.icon,
+            hoverIcon: currentTier.icon,
+            hidden: !!(invItem && invItem.hidden),
+            name: dateText,
+            familyTitle: '',
+            hoverTitle: getTranslation('badge.serverBoosting'),
+            titleItalic: false,
+            hoverSubtitle: dateText,
+            detailMeta,
+            rarity: (invItem && typeof invItem.rarity === 'number') ? invItem.rarity : currentTier.rarity,
+            isLegacy: false,
+            description: progress.isMaxed ? getTranslation('badge.maxedDesc') : getTranslation('badge.desc.booster'),
+            progress,
+            tiers
         };
     }
 
     const GIFTING_TIERS = [
         {
             tier: 6,
+            key: '1506325268141314208',
+            tierKey: 'legend',
             minGifts: 20,
+            plus: true,
+            rarity: 5,
             name: 'Legend',
             iconHash: '7fe346cfc5da1340087d8759a9e7a395',
             idPatterns: ['legend', 'gifting_legend', 'efsane', 'gifter_6', 'gifter_20', 'gifting_tier_6', 'gifting_20'],
             descPatterns: ['legend', 'efsane', '20x', '20 hediye', '20 gift'],
-            icon: 'assets/badges/Gifting_Legend.webp',
+            icon: 'assets/badges/gifting/Gifting_Legend.webp',
+            hoverIcon: 'assets/badges/hover/gifting/Gifting_Legend.webp',
             titleKey: 'badge.giftingLegend'
         },
         {
             tier: 5,
+            key: '1506325197932990504',
+            tierKey: 'hero',
             minGifts: 10,
+            rarity: 3,
             name: 'Hero',
             iconHash: '77d65b1f210014a11eb1582ee06ab684',
             idPatterns: ['hero', 'gifting_hero', 'kahraman', 'gifter_5', 'gifter_10', 'gifting_tier_5', 'gifting_10'],
             descPatterns: ['hero', 'kahraman', '10x', '10 hediye', '10 gift'],
-            icon: 'assets/badges/Gifting_Hero.webp',
+            icon: 'assets/badges/gifting/Gifting_Hero.webp',
+            hoverIcon: 'assets/badges/hover/gifting/Gifting_Hero.webp',
             titleKey: 'badge.giftingHero'
         },
         {
             tier: 4,
+            key: '1495878436579840091',
+            tierKey: 'icon',
             minGifts: 6,
+            rarity: 3,
             name: 'Icon',
             iconHash: '64f2413c9b9803661322aaad25826b62',
             idPatterns: ['icon', 'gifting_icon', 'ikon', 'gifter_4', 'gifter_6', 'gifting_tier_4', 'gifting_6'],
             descPatterns: ['icon', 'ikon', '6x', '6 hediye', '6 gift'],
-            icon: 'assets/badges/Gifting_Icon.webp',
+            icon: 'assets/badges/gifting/Gifting_Icon.webp',
+            hoverIcon: 'assets/badges/hover/gifting/Gifting_Icon.webp',
             titleKey: 'badge.giftingIcon'
         },
         {
             tier: 3,
+            key: '1495878394632474785',
+            tierKey: 'luminary',
             minGifts: 3,
+            rarity: 2,
             name: 'Luminary',
             iconHash: '3119f5504b2cd09576a323908c7c3517',
             idPatterns: ['luminary', 'gifting_luminary', 'bilge', 'gifter_3', 'gifting_tier_3', 'gifting_3'],
             descPatterns: ['luminary', 'bilge', '3x', '3 hediye', '3 gift'],
-            icon: 'assets/badges/Gifting_Luminary.webp',
+            icon: 'assets/badges/gifting/Gifting_Luminary.webp',
+            hoverIcon: 'assets/badges/hover/gifting/Gifting_Luminary.webp',
             titleKey: 'badge.giftingLuminary'
         },
         {
             tier: 2,
+            key: '1495878348587536515',
+            tierKey: 'champion',
             minGifts: 2,
+            rarity: 2,
             name: 'Champion',
             iconHash: '8b7792c4f65953d3ff564f23429cb79e',
             idPatterns: ['champion', 'gifting_champion', 'sampiyon', 'şampiyon', 'gifter_2', 'gifting_tier_2', 'gifting_2'],
             descPatterns: ['champion', 'şampiyon', 'sampiyon', '2x', '2 hediye', '2 gift'],
-            icon: 'assets/badges/Gifting_Champion.webp',
+            icon: 'assets/badges/gifting/Gifting_Champion.webp',
+            hoverIcon: 'assets/badges/hover/gifting/Gifting_Champion.webp',
             titleKey: 'badge.giftingChampion'
         },
         {
             tier: 1,
+            key: '1495878284498440192',
+            tierKey: 'patron',
             minGifts: 1,
+            rarity: 2,
             name: 'Patron',
             iconHash: 'ac305d1b9481f312ce4419e7f8296558',
             idPatterns: ['patron', 'gifting_patron', 'destekçi', 'destekci', 'gifter_1', 'gifting_tier_1', 'gifting_1'],
             descPatterns: ['patron', 'destekçi', 'destekci', '1x', '1 hediye', '1 gift'],
-            icon: 'assets/badges/Gifting_Patron.webp',
+            icon: 'assets/badges/gifting/Gifting_Patron.webp',
+            hoverIcon: 'assets/badges/hover/gifting/Gifting_Patron.webp',
             titleKey: 'badge.giftingPatron'
         }
     ];
 
-    function getGiftingBadgeInfo(acc) {
+    const GIFTING_TIERS_ASC = [...GIFTING_TIERS].reverse().map(t => ({ ...t, min: t.minGifts }));
+
+    function formatGiftingBadgeName(baseName, count) {
+        return count > 0 ? `${baseName} (${formatBadgeUnit('gift', count)})` : baseName;
+    }
+
+    function getGiftingBadgeInfo(acc, invItem = null, profileBadge = null) {
         if (!acc) return null;
 
-        const tier = acc.gifting_tier || 0;
-        const count = acc.gifting_count || 0;
-        if (tier >= 1) {
-            const def = GIFTING_TIERS.find(t => t.tier === tier);
-            if (def) {
-                return {
-                    icon: def.icon,
-                    name: getTranslation(def.titleKey)
-                };
-            }
+        const tier = (invItem && invItem.tier_idx) ? invItem.tier_idx : (acc.gifting_tier || 0);
+        const count = (invItem && typeof invItem.current === 'number') ? invItem.current : (acc.gifting_count || 0);
+
+        let def = null;
+        if (invItem && invItem.tier) {
+            def = GIFTING_TIERS.find(t => t.key === invItem.tier) || null;
         }
-        if (count >= 1) {
-            const def = GIFTING_TIERS.find(t => count >= t.minGifts);
-            if (def) {
-                return {
-                    icon: def.icon,
-                    name: getTranslation(def.titleKey)
-                };
-            }
+        if (!def && tier >= 1) {
+            def = GIFTING_TIERS.find(t => t.tier === tier) || null;
+        }
+        if (!def && count >= 1) {
+            def = GIFTING_TIERS.find(t => count >= t.minGifts) || null;
         }
 
-        const badges = acc.badges || [];
-        if (badges.length === 0) return null;
-
-        for (const def of GIFTING_TIERS) {
-            const matched = badges.find(b => {
-                if (!b) return false;
-                if (b.tier === def.tier) return true;
-                if (b.icon && b.icon.includes(def.iconHash)) return true;
-                if (b.id) {
-                    const idLower = b.id.toLowerCase();
-                    if (def.idPatterns.some(p => idLower === p || idLower.includes(p))) return true;
+        let matched = null;
+        if (!def) {
+            const badges = profileBadge ? [profileBadge] : (acc.badges || []);
+            for (const candidate of GIFTING_TIERS) {
+                matched = badges.find(b => {
+                    if (!b) return false;
+                    if (b.tier === candidate.tier) return true;
+                    if (b.icon && b.icon.includes(candidate.iconHash)) return true;
+                    if (b.id) {
+                        const idLower = b.id.toLowerCase();
+                        if (candidate.idPatterns.some(p => idLower === p || idLower.includes(p))) return true;
+                    }
+                    if (b.description) {
+                        const descLower = b.description.toLowerCase();
+                        if (candidate.descPatterns.some(p => descLower.includes(p))) return true;
+                    }
+                    return false;
+                });
+                if (matched) {
+                    def = candidate;
+                    break;
                 }
-                if (b.description) {
-                    const descLower = b.description.toLowerCase();
-                    if (def.descPatterns.some(p => descLower.includes(p))) return true;
-                }
-                return false;
-            });
-
-            if (matched) {
-                return {
-                    icon: def.icon,
-                    name: getTranslation(def.titleKey) || matched.description || def.name
-                };
             }
         }
 
-        return null;
+        if (!def && (invItem || (profileBadge && profileBadge.id === 'gifting'))) {
+            def = GIFTING_TIERS[GIFTING_TIERS.length - 1];
+        }
+        if (!def) return null;
+
+        const currentIdx = GIFTING_TIERS_ASC.findIndex(t => t.tier === def.tier);
+        const resolvedCount = count > 0 ? count : def.minGifts;
+        const baseName = getTranslation(def.titleKey) || (matched && matched.description) || def.name;
+        const tierShortName = getTranslation(`badge.tier.gifting.${def.tierKey}`) || def.name;
+        const subLine = resolvedCount > 0
+            ? getTranslation('badge.sub.giftingGiven').replace('{unit}', formatBadgeUnit('gift', resolvedCount))
+            : tierShortName;
+
+        const unlockedStr = formatBadgeUnlockedDate(invItem && (invItem.tier_unlocked_at || invItem.obtained_at));
+        const detailMeta = unlockedStr
+            ? `${subLine} • ${getTranslation('badge.unlockedAt').replace('{date}', unlockedStr)}`
+            : subLine;
+
+        const progress = computeCountBadgeProgress('gift', GIFTING_TIERS_ASC, currentIdx, resolvedCount, invItem, null);
+        const tiers = GIFTING_TIERS_ASC.map((t, i) => ({
+            key: t.key,
+            label: getTranslation(`badge.tier.gifting.${t.tierKey}`),
+            milestoneText: formatMilestoneText('gift', t.minGifts, !!t.plus),
+            icon: t.icon,
+            unlocked: i <= currentIdx,
+            isCurrent: i === currentIdx
+        }));
+
+        return {
+            id: 'gifting',
+            icon: def.icon,
+            hoverIcon: def.hoverIcon,
+            hidden: !!(invItem && invItem.hidden),
+            name: formatGiftingBadgeName(baseName, count),
+            familyTitle: getTranslation('badge.gifting'),
+            hoverTitle: tierShortName,
+            titleItalic: false,
+            hoverSubtitle: subLine,
+            detailMeta,
+            rarity: (invItem && typeof invItem.rarity === 'number') ? invItem.rarity : def.rarity,
+            isLegacy: false,
+            description: progress.isMaxed ? getTranslation('badge.maxedDesc') : getTranslation('badge.desc.gifting'),
+            progress,
+            tiers
+        };
+    }
+
+    const PROGRESSIVE_BADGE_REGISTRY = [
+        {
+            badgeIdNum: 18,
+            profileId: 'account_age',
+            titleKey: 'badge.accountAge',
+            tierPrefix: 'badge.tier.accountAge',
+            unit: 'age',
+            milestoneUnit: 'year',
+            descKey: 'badge.desc.accountAge',
+            tiers: [
+                { key: 'one_year', min: 1, rarity: 1, icon: 'assets/badges/account-age/Account_Age_1_Seed.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_1_Seed.webp' },
+                { key: 'two_years', min: 2, rarity: 1, icon: 'assets/badges/account-age/Account_Age_2_Sprout.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_2_Sprout.webp' },
+                { key: 'three_years', min: 3, rarity: 1, icon: 'assets/badges/account-age/Account_Age_3_Sapling.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_3_Sapling.webp' },
+                { key: 'four_years', min: 4, rarity: 1, icon: 'assets/badges/account-age/Account_Age_4_Bud.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_4_Bud.webp' },
+                { key: 'five_years', min: 5, rarity: 1, icon: 'assets/badges/account-age/Account_Age_5_Blossom.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_5_Blossom.webp' },
+                { key: 'six_years', min: 6, rarity: 2, icon: 'assets/badges/account-age/Account_Age_6_Redwood.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_6_Redwood.webp' },
+                { key: 'seven_years', min: 7, rarity: 2, icon: 'assets/badges/account-age/Account_Age_7_Sequoia.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_7_Sequoia.webp' },
+                { key: 'eight_years', min: 8, rarity: 2, icon: 'assets/badges/account-age/Account_Age_8_Bristlecone.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_8_Bristlecone.webp' },
+                { key: 'nine_years', min: 9, rarity: 3, icon: 'assets/badges/account-age/Account_Age_9_Stromatolite.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_9_Stromatolite.webp' },
+                { key: 'ten_years', min: 10, rarity: 5, plus: true, icon: 'assets/badges/account-age/Account_Age_10_Primordial.webp', hoverIcon: 'assets/badges/hover/account-age/Account_Age_10_Primordial.webp' }
+            ]
+        },
+        {
+            badgeIdNum: 19,
+            profileId: 'streaming',
+            titleKey: 'badge.streaming',
+            tierPrefix: 'badge.tier.streaming',
+            unit: 'hour',
+            milestoneUnit: 'hour',
+            subKey: 'badge.sub.streamingHours',
+            descKey: 'badge.desc.streaming',
+            tiers: [
+                { key: 'newcomer', min: 1, rarity: 1, icon: 'assets/badges/streaming/Streaming_1_Newcomer.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_1_Newcomer.webp' },
+                { key: 'fledgling', min: 5, rarity: 1, icon: 'assets/badges/streaming/Streaming_2_Fledgling.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_2_Fledgling.webp' },
+                { key: 'breakout', min: 20, rarity: 1, icon: 'assets/badges/streaming/Streaming_3_Breakout.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_3_Breakout.webp' },
+                { key: 'standout', min: 75, rarity: 1, icon: 'assets/badges/streaming/Streaming_4_Standout.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_4_Standout.webp' },
+                { key: 'trendsetter', min: 150, rarity: 2, icon: 'assets/badges/streaming/Streaming_5_Trendsetter.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_5_Trendsetter.webp' },
+                { key: 'headliner', min: 300, rarity: 2, icon: 'assets/badges/streaming/Streaming_6_Headliner.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_6_Headliner.webp' },
+                { key: 'star', min: 500, rarity: 2, icon: 'assets/badges/streaming/Streaming_7_Star.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_7_Star.webp' },
+                { key: 'sensation', min: 1000, rarity: 3, icon: 'assets/badges/streaming/Streaming_8_Sensation.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_8_Sensation.webp' },
+                { key: 'visionary', min: 2000, rarity: 3, icon: 'assets/badges/streaming/Streaming_9_Visionary.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_9_Visionary.webp' },
+                { key: 'phenomenon', min: 5000, rarity: 5, plus: true, icon: 'assets/badges/streaming/Streaming_10_Phenomenon.webp', hoverIcon: 'assets/badges/hover/streaming/Streaming_10_Phenomenon.webp' }
+            ]
+        },
+        {
+            badgeIdNum: 20,
+            profileId: 'game_time',
+            titleKey: 'badge.gameTime',
+            tierPrefix: 'badge.tier.gameTime',
+            unit: 'hour',
+            milestoneUnit: 'hour',
+            subKey: 'badge.sub.gameTimeHours',
+            descKey: 'badge.desc.gameTime',
+            tiers: [
+                { key: 'casual', min: 1, rarity: 1, icon: 'assets/badges/game-time/Game_Time_1_Casual.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_1_Casual.webp' },
+                { key: 'recreational', min: 5, rarity: 1, icon: 'assets/badges/game-time/Game_Time_2_Recreational.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_2_Recreational.webp' },
+                { key: 'dedicated', min: 20, rarity: 1, icon: 'assets/badges/game-time/Game_Time_3_Dedicated.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_3_Dedicated.webp' },
+                { key: 'committed', min: 75, rarity: 1, icon: 'assets/badges/game-time/Game_Time_4_Committed.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_4_Committed.webp' },
+                { key: 'serious', min: 150, rarity: 2, icon: 'assets/badges/game-time/Game_Time_5_Serious.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_5_Serious.webp' },
+                { key: 'devoted', min: 300, rarity: 2, icon: 'assets/badges/game-time/Game_Time_6_Devoted.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_6_Devoted.webp' },
+                { key: 'seasoned', min: 500, rarity: 2, icon: 'assets/badges/game-time/Game_Time_7_Seasoned.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_7_Seasoned.webp' },
+                { key: 'ironclad', min: 1000, rarity: 3, icon: 'assets/badges/game-time/Game_Time_8_Ironclad.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_8_Ironclad.webp' },
+                { key: 'unshakeable', min: 2000, rarity: 3, icon: 'assets/badges/game-time/Game_Time_9_Unshakeable.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_9_Unshakeable.webp' },
+                { key: 'eternal', min: 5000, rarity: 5, plus: true, icon: 'assets/badges/game-time/Game_Time_10_Eternal.webp', hoverIcon: 'assets/badges/hover/game-time/Game_Time_10_Eternal.webp' }
+            ]
+        },
+        {
+            badgeIdNum: 21,
+            profileId: 'game_variety',
+            titleKey: 'badge.gameVariety',
+            tierPrefix: 'badge.tier.gameVariety',
+            unit: 'game',
+            milestoneUnit: 'game',
+            subKey: 'badge.sub.gameVarietyCount',
+            descKey: 'badge.desc.gameVariety',
+            tiers: [
+                { key: 'sampler', min: 2, rarity: 1, icon: 'assets/badges/game-variety/Game_Variety_1_Sampler.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_1_Sampler.webp' },
+                { key: 'dabbler', min: 5, rarity: 1, icon: 'assets/badges/game-variety/Game_Variety_2_Dabbler.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_2_Dabbler.webp' },
+                { key: 'enthusiast', min: 10, rarity: 1, icon: 'assets/badges/game-variety/Game_Variety_3_Enthusiast.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_3_Enthusiast.webp' },
+                { key: 'ranger', min: 15, rarity: 1, icon: 'assets/badges/game-variety/Game_Variety_4_Ranger.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_4_Ranger.webp' },
+                { key: 'explorer', min: 20, rarity: 2, icon: 'assets/badges/game-variety/Game_Variety_5_Explorer.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_5_Explorer.webp' },
+                { key: 'adventurer', min: 30, rarity: 2, icon: 'assets/badges/game-variety/Game_Variety_6_Adventurer.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_6_Adventurer.webp' },
+                { key: 'voyager', min: 40, rarity: 2, icon: 'assets/badges/game-variety/Game_Variety_7_Voyager.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_7_Voyager.webp' },
+                { key: 'maverick', min: 60, rarity: 3, icon: 'assets/badges/game-variety/Game_Variety_8_Maverick.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_8_Maverick.webp' },
+                { key: 'polymath', min: 80, rarity: 3, icon: 'assets/badges/game-variety/Game_Variety_9_Polymath.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_9_Polymath.webp' },
+                { key: 'universalist', min: 100, rarity: 5, plus: true, icon: 'assets/badges/game-variety/Game_Variety_10_Universalist.webp', hoverIcon: 'assets/badges/hover/game-variety/Game_Variety_10_Universalist.webp' }
+            ]
+        }
+    ];
+
+    function getProgressiveBadgeInfo(def, acc, invItem = null) {
+        if (!def) return null;
+
+        let tierIdx = -1;
+        if (invItem && invItem.tier) {
+            tierIdx = def.tiers.findIndex(t => t.key === invItem.tier);
+        }
+        if (tierIdx === -1 && invItem && invItem.tier_idx >= 1 && invItem.tier_idx <= def.tiers.length) {
+            tierIdx = invItem.tier_idx - 1;
+        }
+
+        let ageDiff = null;
+        let createdDate = null;
+        if (def.unit === 'age') {
+            createdDate = getAccountCreatedDateForBadge(acc, invItem);
+            if (createdDate) {
+                ageDiff = getCalendarYearsMonths(createdDate);
+                if (tierIdx === -1 && ageDiff.years >= 1) {
+                    tierIdx = Math.min(def.tiers.length, ageDiff.years) - 1;
+                }
+            }
+        } else if (tierIdx === -1 && invItem && typeof invItem.current === 'number') {
+            for (let i = def.tiers.length - 1; i >= 0; i--) {
+                if (invItem.current >= def.tiers[i].min) {
+                    tierIdx = i;
+                    break;
+                }
+            }
+        }
+
+        const hasResolvedTier = tierIdx !== -1;
+        const activeIdx = hasResolvedTier ? tierIdx : 0;
+        const resolvedTier = def.tiers[activeIdx];
+        const familyName = getTranslation(def.titleKey);
+        const tierName = hasResolvedTier ? getTranslation(`${def.tierPrefix}.${resolvedTier.key}`) : '';
+
+        let detailText = '';
+        let subLine = '';
+        if (def.unit === 'age') {
+            if (ageDiff && (ageDiff.years > 0 || ageDiff.months > 0)) {
+                const parts = [];
+                if (ageDiff.years > 0) parts.push(formatBadgeUnit('year', ageDiff.years));
+                if (ageDiff.months > 0) parts.push(formatBadgeUnit('month', ageDiff.months));
+                detailText = parts.join(', ');
+                subLine = detailText;
+            }
+        } else if (invItem && typeof invItem.current === 'number') {
+            detailText = formatBadgeUnit(def.unit, invItem.current);
+            if (def.subKey) {
+                subLine = getTranslation(def.subKey).replace('{unit}', detailText);
+            } else {
+                subLine = detailText;
+            }
+        }
+
+        let name = tierName ? `${familyName} • ${tierName}` : familyName;
+        if (detailText) {
+            name += ` (${detailText})`;
+        }
+
+        let unlockedDateSrc = invItem && invItem.tier_unlocked_at;
+        if (!unlockedDateSrc && def.unit === 'age' && createdDate) {
+            unlockedDateSrc = addCalendarMonths(createdDate, resolvedTier.min * 12);
+        }
+        if (!unlockedDateSrc && invItem && invItem.obtained_at) {
+            unlockedDateSrc = invItem.obtained_at;
+        }
+        const unlockedStr = formatBadgeUnlockedDate(unlockedDateSrc);
+        let detailMeta = subLine || familyName;
+        if (unlockedStr) {
+            detailMeta = subLine
+                ? `${subLine} • ${getTranslation('badge.unlockedAt').replace('{date}', unlockedStr)}`
+                : getTranslation('badge.unlockedAt').replace('{date}', unlockedStr);
+        }
+
+        const curVal = (invItem && typeof invItem.current === 'number') ? invItem.current : resolvedTier.min;
+        const progress = computeCountBadgeProgress(def.unit, def.tiers, activeIdx, curVal, invItem, createdDate);
+        const tiers = def.tiers.map((t, i) => ({
+            key: t.key,
+            label: getTranslation(`${def.tierPrefix}.${t.key}`),
+            milestoneText: formatMilestoneText(def.milestoneUnit, t.min, !!t.plus),
+            icon: t.icon,
+            unlocked: i <= activeIdx,
+            isCurrent: i === activeIdx
+        }));
+
+        return {
+            id: def.profileId,
+            icon: resolvedTier.icon,
+            hoverIcon: resolvedTier.hoverIcon || resolvedTier.icon,
+            hidden: !!(invItem && invItem.hidden),
+            name: name,
+            familyTitle: tierName ? familyName : '',
+            hoverTitle: tierName || familyName,
+            titleItalic: false,
+            hoverSubtitle: subLine || familyName,
+            detailMeta,
+            rarity: (invItem && typeof invItem.rarity === 'number') ? invItem.rarity : resolvedTier.rarity,
+            isLegacy: false,
+            description: progress.isMaxed ? getTranslation('badge.maxedDesc') : getTranslation(def.descKey),
+            progress,
+            tiers
+        };
     }
 
     const STATIC_BADGE_REGISTRY = [
         {
             flag: 1,
+            badgeIdNum: 22,
             badgeId: 'staff',
-            icon: 'assets/badges/Discord_Staff.webp',
-            titleKey: 'badge.staff'
+            icon: 'assets/badges/general/Discord_Staff.webp',
+            titleKey: 'badge.staff',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.staff',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.staff'
         },
         {
             flag: 2,
+            badgeIdNum: 2,
             badgeId: 'partner',
-            icon: 'assets/badges/Partnered_Server_Owner.webp',
-            titleKey: 'badge.partner'
+            icon: 'assets/badges/general/Partnered_Server_Owner.webp',
+            titleKey: 'badge.partner',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.partner',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.partner'
         },
         {
             flag: 4,
+            badgeIdNum: 4,
             badgeId: 'hypesquad',
-            icon: 'assets/badges/Hypesquad_Events.webp',
-            titleKey: 'badge.hypesquadEvents'
+            icon: 'assets/badges/general/Hypesquad_Events.webp',
+            titleKey: 'badge.hypesquadEvents',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.hypesquadEvents',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.hypesquadEvents'
         },
         {
             flag: 8,
+            badgeIdNum: 8,
             badgeId: 'bug_hunter_level_1',
-            icon: 'assets/badges/Bug_Hunter.webp',
-            titleKey: 'badge.bugHunter1'
+            icon: 'assets/badges/general/Bug_Hunter.webp',
+            titleKey: 'badge.bugHunter1',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.bugHunter',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.bugHunter1'
         },
         {
             flag: 16384,
+            badgeIdNum: 9,
             badgeId: 'bug_hunter_level_2',
-            icon: 'assets/badges/Bug_Hunter_Gold.webp',
-            titleKey: 'badge.bugHunter2'
+            icon: 'assets/badges/general/Bug_Hunter_Gold.webp',
+            titleKey: 'badge.bugHunter2',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.bugHunter',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.bugHunter2'
         },
         {
             flag: 64,
+            badgeIdNum: 5,
             badgeId: 'hypesquad_house_1',
-            icon: 'assets/badges/Hypesquad_Bravery.webp',
-            titleKey: 'badge.hypesquadBravery'
+            icon: 'assets/badges/general/Hypesquad_Bravery.webp',
+            titleKey: 'badge.hypesquadBravery',
+            rarity: 2,
+            isLegacy: true,
+            subKey: 'badge.sub.hypesquadBravery',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.hypesquadBravery'
         },
         {
             flag: 128,
+            badgeIdNum: 6,
             badgeId: 'hypesquad_house_2',
-            icon: 'assets/badges/Hypesquad_Brilliance.webp',
-            titleKey: 'badge.hypesquadBrilliance'
+            icon: 'assets/badges/general/Hypesquad_Brilliance.webp',
+            titleKey: 'badge.hypesquadBrilliance',
+            rarity: 2,
+            isLegacy: true,
+            subKey: 'badge.sub.hypesquadBrilliance',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.hypesquadBrilliance'
         },
         {
             flag: 256,
+            badgeIdNum: 7,
             badgeId: 'hypesquad_house_3',
-            icon: 'assets/badges/Hypesquad_Balance.webp',
-            titleKey: 'badge.hypesquadBalance'
+            icon: 'assets/badges/general/Hypesquad_Balance.webp',
+            titleKey: 'badge.hypesquadBalance',
+            rarity: 2,
+            isLegacy: true,
+            subKey: 'badge.sub.hypesquadBalance',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.hypesquadBalance'
         },
         {
             flag: 512,
+            badgeIdNum: 11,
             badgeId: 'early_supporter',
-            icon: 'assets/badges/Early_Supporter.webp',
-            titleKey: 'badge.earlySupporter'
+            icon: 'assets/badges/general/Early_Supporter.webp',
+            titleKey: 'badge.earlySupporter',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.earlySupporter',
+            metaKey: 'badge.meta.veryEarly',
+            descKey: 'badge.desc.earlySupporter'
         },
         {
             flag: 131072,
+            badgeIdNum: 10,
             badgeId: 'verified_developer',
             altBadgeId: 'early_verified_bot_developer',
-            icon: 'assets/badges/Early_Verified_Bot_Developer.webp',
-            titleKey: 'badge.verifiedDev'
+            icon: 'assets/badges/general/Early_Verified_Bot_Developer.webp',
+            titleKey: 'badge.verifiedDev',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.verifiedDev',
+            metaKey: 'badge.meta.veryEarly',
+            descKey: 'badge.desc.verifiedDev'
         },
         {
             flag: 262144,
+            badgeIdNum: 3,
             badgeId: 'certified_moderator',
             altBadgeId: 'moderator_programs_alumni',
-            icon: 'assets/badges/Moderator_Program_Alumni.webp',
-            titleKey: 'badge.modAlumni'
+            icon: 'assets/badges/general/Moderator_Program_Alumni.webp',
+            titleKey: 'badge.modAlumni',
+            rarity: 5,
+            isLegacy: true,
+            subKey: 'badge.sub.modAlumni',
+            metaKey: 'badge.meta.iykyk',
+            descKey: 'badge.desc.modAlumni'
         },
         {
+            badgeIdNum: 14,
             badgeId: 'quest_completed',
-            icon: 'assets/badges/Quest_Completed.webp',
-            titleKey: 'badge.questCompleted'
+            icon: 'assets/badges/general/Quest_Completed.webp',
+            titleKey: 'badge.questsTitle',
+            tooltipKey: 'badge.questCompleted',
+            rarity: 1,
+            isLegacy: false,
+            descKey: 'badge.desc.quests'
         },
         {
+            badgeIdNum: 16,
             badgeId: 'orb_profile_badge',
             altBadgeId: 'orbs_apprentice',
-            icon: 'assets/badges/Orbs_Apprentice.webp',
-            titleKey: 'badge.orbsApprentice'
+            icon: 'assets/badges/general/Orbs_Apprentice.webp',
+            titleKey: 'badge.orbsApprentice',
+            rarity: 1,
+            isLegacy: false,
+            subKey: 'badge.sub.orbsBeginning',
+            descKey: 'badge.desc.orbsApprentice'
         },
         {
+            badgeIdNum: 15,
             badgeId: 'april_fools_2026',
-            icon: 'assets/badges/Last_Meadow_Online.webp',
-            titleKey: 'badge.lastMeadowOnline'
+            icon: 'assets/badges/general/Last_Meadow_Online.webp',
+            titleKey: 'badge.lastMeadowTitle',
+            tooltipKey: 'badge.lastMeadowOnline',
+            rarity: 1,
+            isLegacy: true,
+            metaKey: 'badge.meta.april2026',
+            descKey: 'badge.desc.lastMeadow'
         }
     ];
 
-    function getLegacyUsernameBadgeInfo(acc) {
-        if (!acc) return null;
-        const userFlags = acc.public_flags !== undefined && acc.public_flags !== null ? acc.public_flags : (acc.flags || 0);
-        const badges = acc.badges || [];
-        const legacyBadge = badges.find(b => b.id === 'legacy_username');
+    function getStaticBadgeInfo(def, matchedProfileBadge, invItem = null) {
+        const displayTitle = getTranslation(def.titleKey);
+        let legacyTooltip = getTranslation(def.tooltipKey || def.titleKey);
+        if (matchedProfileBadge && matchedProfileBadge.description && def.badgeId === 'april_fools_2026') {
+            legacyTooltip = `${legacyTooltip} (${matchedProfileBadge.description})`;
+        }
 
-        const hasLegacy = (userFlags & 524288) !== 0 || !!legacyBadge || !!acc.legacy_username;
-        if (!hasLegacy) return null;
+        let hoverSubtitle = def.subKey ? getTranslation(def.subKey) : displayTitle;
+        let detailMeta = hoverSubtitle;
 
-        let tooltipText = null;
-
-        if (acc.legacy_username) {
-            const template = getTranslation('badge.legacyUsername');
-            tooltipText = template.replace('{username}', acc.legacy_username);
-        } else if (legacyBadge && legacyBadge.description) {
-            tooltipText = legacyBadge.description;
+        if (def.badgeId === 'quest_completed') {
+            const count = (invItem && typeof invItem.current === 'number') ? invItem.current : null;
+            if (count !== null) {
+                hoverSubtitle = getTranslation('badge.sub.questsCompleted').replace('{unit}', formatBadgeUnit('quest', count));
+                detailMeta = `${hoverSubtitle} • ${getTranslation('badge.unlocked')}`;
+            } else {
+                hoverSubtitle = getTranslation('badge.unlocked');
+                detailMeta = getTranslation('badge.unlocked');
+            }
+        } else if (def.badgeId === 'april_fools_2026') {
+            let level = (invItem && typeof invItem.current === 'number') ? invItem.current : null;
+            if (level === null && matchedProfileBadge && matchedProfileBadge.description) {
+                const lvlMatch = matchedProfileBadge.description.match(/\d+/);
+                if (lvlMatch) level = parseInt(lvlMatch[0], 10);
+            }
+            hoverSubtitle = level !== null
+                ? getTranslation('badge.sub.lastMeadowLevel').replace('{level}', formatBadgeCount(level))
+                : ((matchedProfileBadge && matchedProfileBadge.description) || displayTitle);
+            detailMeta = def.metaKey ? `${hoverSubtitle} • ${getTranslation(def.metaKey)}` : hoverSubtitle;
+        } else if (def.badgeId === 'orb_profile_badge') {
+            hoverSubtitle = getTranslation(def.subKey);
+            detailMeta = `${hoverSubtitle} • ${getTranslation('badge.unlocked')}`;
         } else {
-            tooltipText = getTranslation('badge.legacyUsernameDefault');
+            detailMeta = def.metaKey ? `${hoverSubtitle} • ${getTranslation(def.metaKey)}` : hoverSubtitle;
         }
 
         return {
-            icon: 'assets/badges/Legacy_Username.webp',
-            name: tooltipText
+            id: def.badgeId,
+            icon: def.icon,
+            hoverIcon: def.icon,
+            hidden: !!(invItem && invItem.hidden),
+            name: legacyTooltip,
+            familyTitle: '',
+            hoverTitle: displayTitle,
+            titleItalic: false,
+            hoverSubtitle,
+            detailMeta,
+            rarity: (invItem && typeof invItem.rarity === 'number') ? invItem.rarity : def.rarity,
+            isLegacy: !!def.isLegacy,
+            description: getTranslation(def.descKey),
+            progress: null,
+            tiers: null
         };
     }
 
-    let badgesPopoverEl = null;
-    let badgesPopoverTarget = null;
-    let badgesPopoverHideTimer = null;
+    function getLegacyUsernameBadgeInfo(acc, forceShow = false, profileBadge = null, invItem = null) {
+        if (!acc) return null;
+        const userFlags = acc.public_flags !== undefined && acc.public_flags !== null ? acc.public_flags : (acc.flags || 0);
+        const badges = acc.badges || [];
+        const legacyBadge = profileBadge || badges.find(b => b && b.id === 'legacy_username');
 
-    function getOrCreateBadgesPopover() {
-        if (!badgesPopoverEl) {
-            badgesPopoverEl = document.createElement('div');
-            badgesPopoverEl.id = 'badgesFloatingPopover';
-            badgesPopoverEl.className = 'badges-floating-popover';
-            document.body.appendChild(badgesPopoverEl);
+        const hasLegacy = forceShow || (userFlags & 524288) !== 0 || !!legacyBadge || !!acc.legacy_username;
+        if (!hasLegacy) return null;
 
-            badgesPopoverEl.addEventListener('pointerdown', (e) => e.stopPropagation());
-            badgesPopoverEl.addEventListener('mousedown', (e) => e.stopPropagation());
-            badgesPopoverEl.addEventListener('click', (e) => e.stopPropagation());
+        let tooltipText = null;
+        let shortHandle = null;
+        if (acc.legacy_username) {
+            shortHandle = acc.legacy_username;
+            tooltipText = getTranslation('badge.legacyUsername').replace('{username}', acc.legacy_username);
+        } else if (legacyBadge && legacyBadge.description) {
+            shortHandle = legacyBadge.description;
+            tooltipText = legacyBadge.description;
+        } else {
+            shortHandle = getTranslation('badge.legacyUsernameDefault');
+            tooltipText = shortHandle;
         }
-        return badgesPopoverEl;
+
+        const title = getTranslation('badge.legacyUsernameDefault');
+        const detailMeta = `${shortHandle} • ${getTranslation('badge.meta.veryEarly')}`;
+
+        return {
+            id: 'legacy_username',
+            icon: 'assets/badges/general/Legacy_Username.webp',
+            hoverIcon: 'assets/badges/general/Legacy_Username.webp',
+            hidden: !!(invItem && invItem.hidden),
+            name: tooltipText,
+            familyTitle: '',
+            hoverTitle: title,
+            titleItalic: false,
+            hoverSubtitle: shortHandle,
+            detailMeta,
+            rarity: (invItem && typeof invItem.rarity === 'number') ? invItem.rarity : 1,
+            isLegacy: true,
+            description: getTranslation('badge.desc.legacyUsername'),
+            progress: null,
+            tiers: null
+        };
     }
 
-    function showBadgesPopover(anchorEl, badgesList) {
-        if (!badgesList || badgesList.length === 0) return;
-        if (badgesPopoverHideTimer) {
-            clearTimeout(badgesPopoverHideTimer);
-            badgesPopoverHideTimer = null;
-        }
+    const HIDDEN_EYE_ICON_SVG = `<svg class="badges-grid-tile-eye" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.804 11.804 0 001 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>`;
+    const TIER_LOCK_ICON_SVG = `<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6z"/></svg>`;
 
-        const popover = getOrCreateBadgesPopover();
-        if (badgesPopoverTarget && badgesPopoverTarget !== anchorEl) {
-            badgesPopoverTarget.classList.remove('popover-active');
+    function getBadgeRarityInfo(rarity) {
+        if (rarity === 2) {
+            return {
+                cls: 'rarity-rare',
+                label: getTranslation('badge.rarity.rare'),
+                icon: `<svg width="8" height="8" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.2l6.2 11H1.8z"/></svg>`
+            };
         }
-        badgesPopoverTarget = anchorEl;
-        anchorEl.classList.add('popover-active');
+        if (rarity === 3) {
+            return {
+                cls: 'rarity-epic',
+                label: getTranslation('badge.rarity.epic'),
+                icon: `<svg width="8" height="8" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1l6.5 7L8 15 1.5 8z"/></svg>`
+            };
+        }
+        if (rarity >= 4) {
+            return {
+                cls: 'rarity-mythic',
+                label: getTranslation('badge.rarity.mythic'),
+                icon: `<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01z"/></svg>`
+            };
+        }
+        return null;
+    }
 
-        const titleText = getTranslation('badge.allBadges') || 'Badges';
-        popover.innerHTML = `
-            <div class="badges-popover-header">
-                <span class="badges-popover-title">${titleText}</span>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span class="badges-popover-count">${badgesList.length}</span>
-                    <button class="badges-popover-close" title="${getTranslation('actions.close') || 'Close'}" aria-label="${getTranslation('actions.close') || 'Close'}">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-            <div class="badges-popover-list">
-                ${badgesList.map(b => `
-                    <div class="badges-popover-item">
-                        <img src="${b.icon}" class="badges-popover-icon" alt="">
-                        <span class="badges-popover-name">${b.name}</span>
-                    </div>
-                `).join('')}
-            </div>
+    function renderRarityPillHtml(rarity) {
+        const info = getBadgeRarityInfo(rarity);
+        if (!info) return '';
+        return `<span class="badge-rarity-pill ${info.cls}">${info.icon}<span>${escapeHtml(toBadgeUpper(info.label))}</span></span>`;
+    }
+
+    const HOVER_PREVIEW_DELAY_MS = 500;
+    const badgeContainerRegistry = new WeakMap();
+    let badgeHoverCardEl = null;
+    let activeHoverAnchor = null;
+    let badgeHoverShowTimer = null;
+
+    function bindBadgeContainerData(containerEl, acc, badgesList) {
+        if (!containerEl) return;
+        const byId = new Map();
+        const list = Array.isArray(badgesList) ? badgesList : [];
+        for (const b of list) {
+            if (b && b.id) byId.set(b.id, b);
+        }
+        badgeContainerRegistry.set(containerEl, { acc, badges: list, byId });
+    }
+
+    function getOrCreateBadgeHoverCard() {
+        if (!badgeHoverCardEl) {
+            badgeHoverCardEl = document.createElement('div');
+            badgeHoverCardEl.id = 'badgeHoverCard';
+            badgeHoverCardEl.className = 'badge-hover-card';
+            badgeHoverCardEl.style.display = 'none';
+            document.body.appendChild(badgeHoverCardEl);
+        }
+        return badgeHoverCardEl;
+    }
+
+    function showBadgeHoverCard(anchorEl, badge) {
+        if (!anchorEl || !badge) return;
+        const card = getOrCreateBadgeHoverCard();
+        const familyHtml = badge.familyTitle
+            ? `<div class="badge-hover-family">${escapeHtml(badge.familyTitle)}</div>`
+            : '';
+        const titleCls = `badge-display-title badge-hover-title${badge.titleItalic ? ' is-italic' : ''}`;
+        const subHtml = badge.hoverSubtitle
+            ? `<div class="badge-hover-sub">${escapeHtml(badge.hoverSubtitle)}</div>`
+            : '';
+
+        card.innerHTML = `
+            <img src="${badge.hoverIcon || badge.icon}" class="badge-hover-art${badge.isNitroComplex ? ' is-nitro-complex' : ''}" alt="">
+            ${familyHtml}
+            <div class="${titleCls}">${escapeHtml(toBadgeUpper(badge.hoverTitle || badge.name))}</div>
+            ${subHtml}
+            <span class="badge-hover-caret" aria-hidden="true"></span>
         `;
 
-        const closeBtn = popover.querySelector('.badges-popover-close');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                hideBadgesPopover(0);
-            });
-        }
+        card.classList.remove('is-bottom', 'visible');
+        card.style.visibility = 'hidden';
+        card.style.display = 'flex';
 
-        popover.style.display = 'block';
-        popover.style.visibility = 'hidden';
-
-        const popoverRect = popover.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
         const anchorRect = anchorEl.getBoundingClientRect();
+        const anchorCenterX = anchorRect.left + anchorRect.width / 2;
 
-        let top = anchorRect.bottom + 6;
-        let left = anchorRect.left;
+        const minLeft = 8;
+        const maxLeft = Math.max(minLeft, window.innerWidth - cardRect.width - 8);
+        const left = Math.min(maxLeft, Math.max(minLeft, Math.round(anchorCenterX - cardRect.width / 2)));
 
-        const maxRight = window.innerWidth - 10;
-        if (left + popoverRect.width > maxRight) {
-            left = Math.max(10, maxRight - popoverRect.width);
+        let top = Math.round(anchorRect.top - cardRect.height - 9);
+        let isBottom = false;
+        if (top < 8) {
+            top = Math.round(anchorRect.bottom + 9);
+            isBottom = true;
+            if (top + cardRect.height > window.innerHeight - 8) {
+                top = Math.max(8, window.innerHeight - cardRect.height - 8);
+            }
         }
 
-        const maxBottom = window.innerHeight - 10;
-        if (top + popoverRect.height > maxBottom) {
-            top = anchorRect.top - popoverRect.height - 6;
-        }
+        const caretX = Math.max(14, Math.min(cardRect.width - 14, Math.round(anchorCenterX - left)));
+        card.style.setProperty('--caret-x', `${caretX}px`);
+        card.style.left = `${left}px`;
+        card.style.top = `${top}px`;
+        if (isBottom) card.classList.add('is-bottom');
 
-        popover.style.top = `${Math.max(10, Math.round(top))}px`;
-        popover.style.left = `${Math.max(10, Math.round(left))}px`;
-        popover.style.visibility = 'visible';
-        popover.classList.add('visible');
+        card.style.visibility = 'visible';
+        requestAnimationFrame(() => {
+            if (activeHoverAnchor === anchorEl && badgeHoverCardEl) {
+                badgeHoverCardEl.classList.add('visible');
+            }
+        });
     }
 
-    function hideBadgesPopover(delay = 0) {
-        if (badgesPopoverHideTimer) {
-            clearTimeout(badgesPopoverHideTimer);
-            badgesPopoverHideTimer = null;
+    function clearBadgeHoverTimer() {
+        if (badgeHoverShowTimer) {
+            clearTimeout(badgeHoverShowTimer);
+            badgeHoverShowTimer = null;
         }
-        const doHide = () => {
-            if (badgesPopoverTarget) {
-                badgesPopoverTarget.classList.remove('popover-active');
-                badgesPopoverTarget = null;
-            }
-            if (badgesPopoverEl) {
-                badgesPopoverEl.classList.remove('visible');
-                badgesPopoverEl.style.display = 'none';
-            }
-        };
-        if (delay > 0) {
-            badgesPopoverHideTimer = setTimeout(() => {
-                doHide();
-                badgesPopoverHideTimer = null;
-            }, delay);
-        } else {
-            doHide();
+    }
+
+    function hideBadgeHoverCard() {
+        clearBadgeHoverTimer();
+        activeHoverAnchor = null;
+        if (badgeHoverCardEl) {
+            badgeHoverCardEl.classList.remove('visible', 'is-bottom');
+            badgeHoverCardEl.style.display = 'none';
         }
+    }
+
+    let activeBadgesModalState = null;
+
+    function isBadgesModalOpen() {
+        const modal = document.getElementById('badgesModal');
+        return !!(modal && modal.style.display !== 'none' && activeBadgesModalState);
+    }
+
+    const staleUpgradeInFlight = new Map();
+    const staleUpgradeDone = new Set();
+    let staleUpgradeRateLimited = false;
+    let staleQueueStarted = false;
+
+    function needsBadgeDataUpgrade(acc) {
+        return !!(acc && !acc.invalid && acc.token && (!acc._profileVersion || acc._profileVersion < 6));
+    }
+
+    function syncBadgesModalAccount(acc) {
+        if (!acc || !activeBadgesModalState) return;
+        const split = getAccountBadgesSplit(acc);
+        const allBadges = [...split.visible, ...split.hidden];
+        if (allBadges.length === 0) return;
+        const byId = new Map();
+        for (const b of allBadges) {
+            if (b && b.id) byId.set(b.id, b);
+        }
+        const prevId = activeBadgesModalState.selectedId;
+        const selectedId = (prevId && byId.has(prevId)) ? prevId : allBadges[0].id;
+        activeBadgesModalState = { acc, badges: allBadges, byId, selectedId };
+        renderBadgesModalGrid();
+        renderBadgesModalDetail();
+    }
+
+    function upgradeAccountBadgeDataIfNeeded(acc) {
+        if (!needsBadgeDataUpgrade(acc) || staleUpgradeRateLimited) return Promise.resolve(null);
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) return Promise.resolve(null);
+        if (staleUpgradeDone.has(acc.token)) return Promise.resolve(null);
+        if (staleUpgradeInFlight.has(acc.token)) return staleUpgradeInFlight.get(acc.token);
+
+        const p = (async () => {
+            try {
+                const result = await validateToken(acc.token, true);
+                if (!result || result.error === 'ratelimit' || (result.data && result.data._rateLimited)) {
+                    if (result && (result.error === 'ratelimit' || (result.data && result.data._rateLimited))) {
+                        staleUpgradeRateLimited = true;
+                    }
+                    return null;
+                }
+                staleUpgradeDone.add(acc.token);
+                if (!result.valid || !result.data) return null;
+
+                const idx = accounts.findIndex(a => a && (a.id === acc.id || a.token === acc.token));
+                if (idx === -1) return null;
+
+                const wasCardVisible = !!(badgeHoverCardEl && badgeHoverCardEl.style.display !== 'none');
+                const hoveredInDetails = !!(activeHoverAnchor && activeHoverAnchor.closest('#accountDetailsBadges'));
+                const hoveredBadgeId = (activeHoverAnchor && (hoveredInDetails || activeHoverAnchor.closest('.account-badges')))
+                    ? activeHoverAnchor.dataset.badgeId
+                    : null;
+                const updatedAcc = applyUserDataToAccount(accounts[idx], result.data, acc.token);
+                accounts[idx] = updatedAcc;
+                await saveAccounts(accounts);
+
+                if (activeDetailsAccount && (activeDetailsAccount.id === updatedAcc.id || activeDetailsAccount.token === updatedAcc.token)) {
+                    activeDetailsAccount = updatedAcc;
+                    renderAccountDetailsBadges(updatedAcc);
+                }
+                if (activeBadgesModalState && activeBadgesModalState.acc && (activeBadgesModalState.acc.id === updatedAcc.id || activeBadgesModalState.acc.token === updatedAcc.token)) {
+                    syncBadgesModalAccount(updatedAcc);
+                }
+                if (activeHoverAnchor && !isBadgesModalOpen()) {
+                    if (!activeHoverAnchor.isConnected) {
+                        let replacementIcon = null;
+                        if (hoveredBadgeId && hoveredInDetails) {
+                            const detailsContainer = document.getElementById('accountDetailsBadges');
+                            replacementIcon = detailsContainer ? detailsContainer.querySelector(`.badge-icon[data-badge-id="${hoveredBadgeId}"]`) : null;
+                        } else if (hoveredBadgeId && listContainer) {
+                            const newRow = [...listContainer.querySelectorAll('.account-item')].find(el => el.dataset.token === updatedAcc.token);
+                            replacementIcon = newRow ? newRow.querySelector(`.account-badges .badge-icon[data-badge-id="${hoveredBadgeId}"]`) : null;
+                        }
+                        if (replacementIcon) {
+                            activeHoverAnchor = replacementIcon;
+                        } else {
+                            hideBadgeHoverCard();
+                        }
+                    }
+                    if (wasCardVisible && activeHoverAnchor && activeHoverAnchor.isConnected) {
+                        const freshBadge = resolveHoveredBadgeObject(activeHoverAnchor);
+                        if (freshBadge) showBadgeHoverCard(activeHoverAnchor, freshBadge);
+                    }
+                }
+                return updatedAcc;
+            } catch (e) {
+                return null;
+            } finally {
+                staleUpgradeInFlight.delete(acc.token);
+            }
+        })();
+        staleUpgradeInFlight.set(acc.token, p);
+        return p;
+    }
+
+    function queueStaleBadgeUpgrades() {
+        if (staleQueueStarted || staleUpgradeRateLimited) return;
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) return;
+        const staleTokens = accounts.filter(needsBadgeDataUpgrade).map(a => a.token);
+        if (staleTokens.length === 0) return;
+        staleQueueStarted = true;
+
+        setTimeout(async () => {
+            for (const tok of staleTokens) {
+                if (staleUpgradeRateLimited) break;
+                const target = accounts.find(a => a && a.token === tok);
+                if (target && needsBadgeDataUpgrade(target) && !staleUpgradeDone.has(tok)) {
+                    await upgradeAccountBadgeDataIfNeeded(target);
+                    await new Promise(r => setTimeout(r, 400));
+                }
+            }
+        }, 250);
+    }
+
+    function resolveHoveredBadgeObject(triggerEl) {
+        if (!triggerEl || isBadgesModalOpen()) return null;
+        const badgeId = triggerEl.dataset.badgeId;
+        if (!badgeId) return null;
+
+        const containerEl = triggerEl.closest('.account-badges, #accountDetailsBadges');
+        if (!containerEl) return null;
+        const reg = badgeContainerRegistry.get(containerEl);
+        if (reg && reg.acc && needsBadgeDataUpgrade(reg.acc)) {
+            upgradeAccountBadgeDataIfNeeded(reg.acc);
+        }
+        return (reg && reg.byId) ? (reg.byId.get(badgeId) || null) : null;
+    }
+
+    function renderBadgesModalGrid() {
+        const gridEl = document.getElementById('badgesModalGrid');
+        if (!gridEl || !activeBadgesModalState) return;
+        const { badges, selectedId } = activeBadgesModalState;
+
+        gridEl.innerHTML = badges.map(b => {
+            const isActive = b.id === selectedId;
+            const classes = [
+                'badges-grid-tile',
+                isActive ? 'active' : '',
+                b.hidden ? 'is-hidden-badge' : ''
+            ].filter(Boolean).join(' ');
+            const eyeHtml = b.hidden ? HIDDEN_EYE_ICON_SVG : '';
+            return `<button type="button" class="${classes}" data-badge-id="${escapeHtml(b.id)}"><img src="${b.icon}" alt="">${eyeHtml}</button>`;
+        }).join('');
+    }
+
+    function renderBadgesModalDetail() {
+        const detailEl = document.getElementById('badgesModalDetail');
+        if (!detailEl || !activeBadgesModalState) return;
+
+        const badge = activeBadgesModalState.byId.get(activeBadgesModalState.selectedId)
+            || activeBadgesModalState.badges[0];
+        if (!badge) {
+            detailEl.innerHTML = '';
+            return;
+        }
+
+        const familyHtml = badge.familyTitle
+            ? `<div class="badges-detail-family">${escapeHtml(badge.familyTitle)}</div>`
+            : '';
+        const titleCls = `badge-display-title badges-detail-title${badge.titleItalic ? ' is-italic' : ''}`;
+        const rarityHtml = renderRarityPillHtml(badge.rarity);
+        const metaParts = [];
+        if (badge.detailMeta) metaParts.push(`<span>${escapeHtml(badge.detailMeta)}</span>`);
+        if (rarityHtml) {
+            const bulletHtml = metaParts.length > 0 ? `<span aria-hidden="true">•</span>` : '';
+            metaParts.push(`<span class="badges-detail-rarity-wrap">${bulletHtml}${rarityHtml}</span>`);
+        }
+
+        let cardInnerHtml = '';
+        if (badge.progress && !badge.progress.isMaxed) {
+            const p = badge.progress;
+            cardInnerHtml += `
+                <div class="badges-progress-title">${escapeHtml(getTranslation('badge.yourProgress'))}</div>
+                <div class="badges-progress-row">
+                    <img src="${p.currentIcon}" class="badges-progress-tier-icon" alt="">
+                    <div class="badges-progress-mid">
+                        <div class="badges-progress-remaining">${escapeHtml(p.remainingText)}</div>
+                        <div class="badges-progress-track">
+                            <div class="badges-progress-fill" style="width: ${p.percent}%;"></div>
+                        </div>
+                    </div>
+                    ${p.nextIcon ? `<img src="${p.nextIcon}" class="badges-progress-tier-icon" alt="">` : ''}
+                </div>
+                <div class="badges-detail-divider"></div>
+            `;
+        } else if (badge.isLegacy) {
+            cardInnerHtml += `<div class="badges-legacy-label">${escapeHtml(getTranslation('badge.legacyBadge'))}</div>`;
+        }
+
+        const hasTiers = Array.isArray(badge.tiers) && badge.tiers.length > 0;
+        if (badge.description) {
+            cardInnerHtml += `<div class="badges-detail-desc">${escapeHtml(badge.description)}</div>`;
+            if (badge.progress && badge.progress.isMaxed && hasTiers) {
+                cardInnerHtml += `<div class="badges-detail-divider"></div>`;
+            }
+        }
+
+        if (hasTiers) {
+            const tierCells = badge.tiers.map(t => {
+                const cellCls = `badges-tier-cell${t.isCurrent ? ' is-current' : ''}${!t.unlocked ? ' is-locked' : ''}`;
+                const nameHtml = t.label ? `<div class="badges-tier-name">${escapeHtml(t.label)}</div>` : '';
+                const lockHtml = !t.unlocked ? TIER_LOCK_ICON_SVG : '';
+                const mileHtml = t.milestoneText
+                    ? `<div class="badges-tier-milestone">${lockHtml}<span>${escapeHtml(t.milestoneText)}</span></div>`
+                    : '';
+                return `
+                    <div class="${cellCls}">
+                        <img src="${t.icon}" class="badges-tier-icon" alt="">
+                        ${nameHtml}
+                        ${mileHtml}
+                    </div>
+                `;
+            }).join('');
+            cardInnerHtml += `<div class="badges-tiers-grid">${tierCells}</div>`;
+        }
+
+        detailEl.innerHTML = `
+            <div class="badges-detail-hero">
+                <img src="${badge.hoverIcon || badge.icon}" class="badges-detail-art${badge.isNitroComplex ? ' is-nitro-complex' : ''}" alt="">
+                ${familyHtml}
+                <div class="${titleCls}">${escapeHtml(toBadgeUpper(badge.hoverTitle || badge.name))}</div>
+                <div class="badges-detail-meta">${metaParts.join('')}</div>
+            </div>
+            ${cardInnerHtml ? `<div class="badges-detail-card">${cardInnerHtml}</div>` : ''}
+        `;
+        detailEl.scrollTop = 0;
+    }
+
+    function openBadgesModal(acc, initialBadgeId = null) {
+        if (!acc) return;
+        const modal = document.getElementById('badgesModal');
+        if (!modal) return;
+
+        const split = getAccountBadgesSplit(acc);
+        const allBadges = [...split.visible, ...split.hidden];
+        if (allBadges.length === 0) return;
+
+        hideBadgeHoverCard();
+
+        const byId = new Map();
+        for (const b of allBadges) {
+            if (b && b.id) byId.set(b.id, b);
+        }
+
+        const selectedId = (initialBadgeId && byId.has(initialBadgeId))
+            ? initialBadgeId
+            : allBadges[0].id;
+
+        activeBadgesModalState = { acc, badges: allBadges, byId, selectedId };
+
+        const titleEl = document.getElementById('badgesModalTitle');
+        const subEl = document.getElementById('badgesModalSubtitle');
+        if (titleEl) titleEl.textContent = getTranslation('badge.panelTitle');
+        if (subEl) subEl.textContent = getTranslation('badge.panelSubtitle');
+
+        renderBadgesModalGrid();
+        renderBadgesModalDetail();
+        modal.style.display = 'flex';
+        if (needsBadgeDataUpgrade(acc)) {
+            upgradeAccountBadgeDataIfNeeded(acc);
+        }
+    }
+
+    function closeBadgesModal() {
+        hideBadgeHoverCard();
+        const modal = document.getElementById('badgesModal');
+        if (modal) modal.style.display = 'none';
+        activeBadgesModalState = null;
+    }
+
+    function resolveBadgeFromInventoryItem(acc, invItem) {
+        if (!invItem) return null;
+        const userBadges = acc.badges || [];
+        if (invItem.id === 1) return getNitroBadgeInfo(acc, invItem);
+        if (invItem.id === 12) return getBoosterBadgeInfo(acc, invItem);
+        if (invItem.id === 17) return getGiftingBadgeInfo(acc, invItem);
+        if (invItem.id === 13) return getLegacyUsernameBadgeInfo(acc, true, null, invItem);
+
+        const progDef = PROGRESSIVE_BADGE_REGISTRY.find(p => p.badgeIdNum === invItem.id);
+        if (progDef) return getProgressiveBadgeInfo(progDef, acc, invItem);
+
+        const staticDef = STATIC_BADGE_REGISTRY.find(s => s.badgeIdNum === invItem.id);
+        if (staticDef) {
+            const matchedProfileBadge = userBadges.find(b => b && (b.id === staticDef.badgeId || (staticDef.altBadgeId && b.id === staticDef.altBadgeId)));
+            return getStaticBadgeInfo(staticDef, matchedProfileBadge, invItem);
+        }
+        return null;
+    }
+
+    function getAccountBadgesSplit(acc) {
+        if (!acc) return { visible: [], hidden: [] };
+        const visible = [];
+        const hidden = [];
+
+        if (Array.isArray(acc.badge_items)) {
+            for (const invItem of acc.badge_items) {
+                if (!invItem || invItem.id === 23) continue;
+                const resolved = resolveBadgeFromInventoryItem(acc, invItem);
+                if (!resolved) continue;
+                if (invItem.hidden) hidden.push(resolved);
+                else visible.push(resolved);
+            }
+            return { visible, hidden };
+        }
+
+        const userBadges = acc.badges || [];
+        const matchedKeys = new Set();
+
+        for (const profBadge of userBadges) {
+            if (!profBadge || !profBadge.id) continue;
+            const pid = profBadge.id;
+
+            if (isNitroBadgeId(pid)) {
+                if (!matchedKeys.has('nitro')) {
+                    const info = getNitroBadgeInfo(acc, null, profBadge);
+                    if (info) { visible.push(info); matchedKeys.add('nitro'); }
+                }
+                continue;
+            }
+            if (isBoosterBadgeId(pid)) {
+                if (!matchedKeys.has('booster')) {
+                    const info = getBoosterBadgeInfo(acc, null, profBadge);
+                    if (info) { visible.push(info); matchedKeys.add('booster'); }
+                }
+                continue;
+            }
+            if (pid === 'gifting' || pid.startsWith('gifting_')) {
+                if (!matchedKeys.has('gifting')) {
+                    const info = getGiftingBadgeInfo(acc, null, profBadge);
+                    if (info) { visible.push(info); matchedKeys.add('gifting'); }
+                }
+                continue;
+            }
+            if (pid === 'legacy_username') {
+                if (!matchedKeys.has('legacy_username')) {
+                    const info = getLegacyUsernameBadgeInfo(acc, true, profBadge, null);
+                    if (info) { visible.push(info); matchedKeys.add('legacy_username'); }
+                }
+                continue;
+            }
+
+            const progDef = PROGRESSIVE_BADGE_REGISTRY.find(p => p.profileId === pid);
+            if (progDef) {
+                if (!matchedKeys.has(progDef.profileId)) {
+                    const info = getProgressiveBadgeInfo(progDef, acc, null);
+                    if (info) { visible.push(info); matchedKeys.add(progDef.profileId); }
+                }
+                continue;
+            }
+
+            const staticDef = STATIC_BADGE_REGISTRY.find(s => s.badgeId === pid || (s.altBadgeId && s.altBadgeId === pid));
+            if (staticDef && !matchedKeys.has(staticDef.badgeId)) {
+                visible.push(getStaticBadgeInfo(staticDef, profBadge, null));
+                matchedKeys.add(staticDef.badgeId);
+            }
+        }
+
+        if (!acc._profileChecked || userBadges.length === 0) {
+            if (!matchedKeys.has('nitro')) {
+                const nitroInfo = getNitroBadgeInfo(acc);
+                if (nitroInfo) { visible.push(nitroInfo); matchedKeys.add('nitro'); }
+            }
+            if (!matchedKeys.has('booster')) {
+                const boosterInfo = getBoosterBadgeInfo(acc);
+                if (boosterInfo) { visible.push(boosterInfo); matchedKeys.add('booster'); }
+            }
+            if (!matchedKeys.has('gifting')) {
+                const giftingInfo = getGiftingBadgeInfo(acc);
+                if (giftingInfo) { visible.push(giftingInfo); matchedKeys.add('gifting'); }
+            }
+            const userFlags = acc.public_flags !== undefined && acc.public_flags !== null ? acc.public_flags : (acc.flags || 0);
+            for (const def of STATIC_BADGE_REGISTRY) {
+                if (matchedKeys.has(def.badgeId)) continue;
+                if (def.flag !== undefined && (userFlags & def.flag) !== 0) {
+                    visible.push(getStaticBadgeInfo(def, null, null));
+                    matchedKeys.add(def.badgeId);
+                }
+            }
+            if (!matchedKeys.has('legacy_username')) {
+                const legacyInfo = getLegacyUsernameBadgeInfo(acc);
+                if (legacyInfo) visible.push(legacyInfo);
+            }
+        } else if (!matchedKeys.has('gifting') && ((acc.gifting_tier || 0) > 0 || (acc.gifting_count || 0) > 0)) {
+            const giftingInfo = getGiftingBadgeInfo(acc);
+            if (giftingInfo) visible.push(giftingInfo);
+        }
+
+        return { visible, hidden };
     }
 
     function getAccountBadges(acc) {
-        if (!acc) return [];
-        const badges = [];
-
-        const nitroInfo = getNitroBadgeInfo(acc);
-        if (nitroInfo) badges.push(nitroInfo);
-
-        const boosterInfo = getBoosterBadgeInfo(acc);
-        if (boosterInfo) badges.push(boosterInfo);
-
-        const giftingInfo = getGiftingBadgeInfo(acc);
-        if (giftingInfo) badges.push(giftingInfo);
-
-        const userFlags = acc.public_flags !== undefined && acc.public_flags !== null ? acc.public_flags : (acc.flags || 0);
-        const userBadges = acc.badges || [];
-
-        for (const def of STATIC_BADGE_REGISTRY) {
-            const hasFlag = def.flag !== undefined && (userFlags & def.flag) !== 0;
-            const matchedBadge = userBadges.find(b => {
-                if (!b) return false;
-                if (def.badgeId && b.id === def.badgeId) return true;
-                if (def.altBadgeId && b.id === def.altBadgeId) return true;
-                if (def.matchDesc && b.description && b.description.toLowerCase().includes(def.matchDesc)) return true;
-                return false;
-            });
-            const hasBadge = hasFlag || !!matchedBadge;
-
-            if (hasBadge) {
-                let tooltip = getTranslation(def.titleKey);
-                if (matchedBadge && matchedBadge.description) {
-                    if (def.badgeId === 'april_fools_2026') {
-                        tooltip = `${getTranslation(def.titleKey)} (${matchedBadge.description})`;
-                    } else if (def.matchDesc) {
-                        tooltip = matchedBadge.description;
-                    }
-                }
-                badges.push({
-                    icon: def.icon,
-                    name: tooltip
-                });
-            }
-        }
-
-        const legacyInfo = getLegacyUsernameBadgeInfo(acc);
-        if (legacyInfo) badges.push(legacyInfo);
-
-        return badges;
+        return getAccountBadgesSplit(acc).visible;
     }
 
     function renderBadgesHtml(badges) {
         if (!showBadges || !badges || badges.length === 0) return '';
-        const MAX_VISIBLE = 3;
-        const visibleBadges = badges.slice(0, MAX_VISIBLE);
-        const hiddenCount = badges.length - MAX_VISIBLE;
+        const visibleLimit = clampVisibleBadgesCount(maxVisibleBadges);
+        const visibleBadges = badges.slice(0, visibleLimit);
+        const hiddenCount = badges.length - visibleLimit;
 
-        const visibleHtml = visibleBadges.map(b => `<img src="${b.icon}" class="badge-icon" title="${b.name}" alt="${b.name}">`).join('');
-        const moreHtml = hiddenCount > 0 ? `<span class="badge-more" title="${getTranslation('badge.allBadges') || 'Badges'} (+${hiddenCount})">+${hiddenCount}</span>` : '';
+        const visibleHtml = visibleBadges.map(b => `<img src="${b.icon}" class="badge-icon" data-badge-id="${escapeHtml(b.id)}" alt="${escapeHtml(b.name)}">`).join('');
+        const moreHtml = hiddenCount > 0 ? `<span class="badge-more">+${hiddenCount}</span>` : '';
 
         return `<div class="account-badges${hiddenCount > 0 ? ' has-more' : ''}">${visibleHtml}${moreHtml}</div>`;
     }
@@ -1786,7 +2965,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const avatarUrl = getAccountAvatarUrl(acc, 64);
 
-        const badges = getAccountBadges(acc);
+        const badgeData = getAccountBadgesSplit(acc);
+        const badges = badgeData.visible;
         const badgesHtml = renderBadgesHtml(badges);
 
         item.innerHTML = `
@@ -1817,7 +2997,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     </button>
                 ` : ''}
                 <div class="account-menu-wrapper">
-                    <button class="icon-btn account-menu-btn" title="${getTranslation('account.options') || 'Account Options'}">
+                    <button class="icon-btn account-menu-btn" aria-label="${escapeHtml(getTranslation('account.options') || 'Account Options')}">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <circle cx="12" cy="5" r="2"></circle>
                             <circle cx="12" cy="12" r="2"></circle>
@@ -1865,19 +3045,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const badgesContainer = item.querySelector('.account-badges');
         if (badgesContainer) {
+            const allAccountBadges = [...badgeData.visible, ...badgeData.hidden];
+            bindBadgeContainerData(badgesContainer, acc, allAccountBadges);
             badgesContainer.addEventListener('pointerdown', (e) => e.stopPropagation());
             badgesContainer.addEventListener('mousedown', (e) => e.stopPropagation());
             badgesContainer.addEventListener('click', (e) => {
                 e.stopPropagation();
                 closeAllFolderMenus();
                 closeAllAccountMenus();
+                hideBadgeHoverCard();
                 document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);
-                if (badges.length > 0) {
-                    if (badgesPopoverEl && badgesPopoverEl.classList.contains('visible') && badgesPopoverTarget === badgesContainer) {
-                        hideBadgesPopover(0);
-                    } else {
-                        showBadgesPopover(badgesContainer, badges);
-                    }
+                if (allAccountBadges.length > 0) {
+                    const clickedIcon = e.target.closest('.badge-icon');
+                    const initialId = clickedIcon ? clickedIcon.dataset.badgeId : allAccountBadges[0].id;
+                    openBadgesModal(acc, initialId);
                 }
             });
         }
@@ -1905,7 +3086,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 e.stopPropagation();
                 closeAllFolderMenus();
                 closeAllAccountMenus(accountMenuWrapper);
-                hideBadgesPopover(0);
+                hideBadgeHoverCard();
                 document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);
                 const isOpening = !accountMenuWrapper.classList.contains('open');
                 if (isOpening) {
@@ -1962,31 +3143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }, 3000);
                     }
 
-                    accounts[existingIdx] = {
-                        ...existing,
-                        _profileChecked: true,
-                        username: userData.username,
-                        global_name: userData.global_name,
-                        avatar: userData.avatar,
-                        banner: userData.banner !== undefined ? userData.banner : (existing.banner || null),
-                        banner_color: userData.banner_color !== undefined ? userData.banner_color : (existing.banner_color || null),
-                        accent_color: userData.accent_color !== undefined ? userData.accent_color : (existing.accent_color !== undefined ? existing.accent_color : null),
-                        email: userData.email || existing.email || null,
-                        phone: userData.phone || existing.phone || null,
-                        verified: userData.verified !== undefined ? !!userData.verified : (existing.verified || false),
-                        mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (existing.mfa_enabled || false),
-                        locale: userData.locale || existing.locale || null,
-                        premium_type: userData.premium_type,
-                        flags: userData.flags,
-                        public_flags: userData.public_flags,
-                        invalid: false,
-                        premium_since: userData._profileFailed ? (existing.premium_since || null) : (userData.premium_since || null),
-                        premium_guild_since: userData._profileFailed ? (existing.premium_guild_since || null) : (userData.premium_guild_since || null),
-                        legacy_username: userData._profileFailed ? (existing.legacy_username || null) : (userData.legacy_username || null),
-                        badges: userData._profileFailed ? (existing.badges || []) : (userData.badges || []),
-                        gifting_count: !userData._badgesFetchFailed && typeof userData.gifting_count === 'number' ? userData.gifting_count : (existing.gifting_count || 0),
-                        gifting_tier: !userData._badgesFetchFailed && typeof userData.gifting_tier === 'number' ? userData.gifting_tier : (existing.gifting_tier || 0)
-                    };
+                    accounts[existingIdx] = applyUserDataToAccount(existing, userData, acc.token);
                     await saveAccounts(accounts);
                 } else if (result && (result.error === 'unauthorized' || result.error === 'invalid_token')) {
                     refreshBtn.style.color = 'var(--danger)';
@@ -2239,7 +3396,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             e.stopPropagation();
             closeAllFolderMenus();
             closeAllAccountMenus();
-            hideBadgesPopover(0);
+            hideBadgeHoverCard();
             document.querySelectorAll('.custom-select-container.open').forEach(el => {
                 if (el !== customTokenFolderSelect) closeCustomSelect(el);
             });
@@ -2790,6 +3947,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    function renderAccountDetailsBadges(acc) {
+        const badgesContainer = document.getElementById('accountDetailsBadges');
+        if (!badgesContainer || !acc) return;
+        const badgeData = getAccountBadgesSplit(acc);
+        const visibleHtml = badgeData.visible
+            .map(b => `<img src="${b.icon}" class="badge-icon" data-badge-id="${escapeHtml(b.id)}" alt="${escapeHtml(b.name)}">`)
+            .join('');
+        let hiddenHtml = '';
+        if (badgeData.hidden.length > 0) {
+            const hiddenIcons = badgeData.hidden
+                .map(b => `<img src="${b.icon}" class="badge-icon hidden-badge-icon" data-badge-id="${escapeHtml(b.id)}" alt="${escapeHtml(b.name)}">`)
+                .join('');
+            hiddenHtml = `
+                <div class="account-details-hidden-badges">
+                    <svg class="account-details-hidden-eye" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.804 11.804 0 001 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
+                    </svg>
+                    ${hiddenIcons}
+                </div>
+            `;
+        }
+        badgesContainer.innerHTML = visibleHtml + hiddenHtml;
+        bindBadgeContainerData(badgesContainer, acc, [...badgeData.visible, ...badgeData.hidden]);
+    }
+
     function openAccountDetailsModal(acc) {
         if (!acc) return;
         activeDetailsAccount = acc;
@@ -2802,7 +3984,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const statusDotEl = document.getElementById('accountDetailsStatusIndicator');
         const globalNameEl = document.getElementById('accountDetailsGlobalName');
         const usernameEl = document.getElementById('accountDetailsUsername');
-        const badgesContainer = document.getElementById('accountDetailsBadges');
 
         const createdDateEl = document.getElementById('accountDetailsCreatedDate');
         const idEl = document.getElementById('accountDetailsId');
@@ -2823,11 +4004,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             usernameEl.textContent = `@${acc.username || ''}`;
         }
 
-        if (badgesContainer) {
-            const badges = getAccountBadges(acc);
-            badgesContainer.innerHTML = (badges && badges.length > 0)
-                ? badges.map(b => `<img src="${b.icon}" class="badge-icon" title="${b.name}" alt="${b.name}">`).join('')
-                : '';
+        renderAccountDetailsBadges(acc);
+        if (needsBadgeDataUpgrade(acc)) {
+            upgradeAccountBadgeDataIfNeeded(acc);
         }
 
         const effectiveId = getEffectiveUserId(acc);
@@ -3121,6 +4300,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function closeAccountDetailsModal() {
+        hideBadgeHoverCard();
         closeFolderDropdown();
         const modal = document.getElementById('accountDetailsModal');
         if (modal) modal.style.display = 'none';
@@ -3380,29 +4560,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const existingIdx = accounts.findIndex(a => a.id === updateTargetAccount.id || a.token === updateTargetAccount.token);
             if (existingIdx !== -1) {
                 const existing = accounts[existingIdx];
-                accounts[existingIdx] = {
-                    ...existing,
-                    token: rawToken,
-                    invalid: false,
-                    _profileChecked: true,
-                    username: userData.username,
-                    global_name: userData.global_name,
-                    avatar: userData.avatar,
-                    email: userData.email || existing.email || null,
-                    phone: userData.phone || existing.phone || null,
-                    verified: userData.verified !== undefined ? !!userData.verified : (existing.verified || false),
-                    mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (existing.mfa_enabled || false),
-                    locale: userData.locale || existing.locale || null,
-                    premium_type: userData.premium_type,
-                    flags: userData.flags,
-                    public_flags: userData.public_flags,
-                    premium_since: userData._profileFailed ? (existing.premium_since || null) : (userData.premium_since || null),
-                    premium_guild_since: userData._profileFailed ? (existing.premium_guild_since || null) : (userData.premium_guild_since || null),
-                    legacy_username: userData._profileFailed ? (existing.legacy_username || null) : (userData.legacy_username || null),
-                    badges: userData._profileFailed ? (existing.badges || []) : (userData.badges || []),
-                    gifting_count: !userData._badgesFetchFailed && typeof userData.gifting_count === 'number' ? userData.gifting_count : (existing.gifting_count || 0),
-                    gifting_tier: !userData._badgesFetchFailed && typeof userData.gifting_tier === 'number' ? userData.gifting_tier : (existing.gifting_tier || 0)
-                };
+                accounts[existingIdx] = applyUserDataToAccount(existing, userData, rawToken);
                 await saveAccounts(accounts);
             }
 
@@ -3516,7 +4674,72 @@ document.addEventListener('DOMContentLoaded', async () => {
         accountDetailsModal.addEventListener('click', (e) => {
             if (e.target === accountDetailsModal) closeAccountDetailsModal();
         });
+        const detailsCardEl = accountDetailsModal.querySelector('.account-details-card');
+        if (detailsCardEl) {
+            detailsCardEl.addEventListener('scroll', hideBadgeHoverCard, { passive: true });
+        }
     }
+
+    const accountDetailsBadgesEl = document.getElementById('accountDetailsBadges');
+    if (accountDetailsBadgesEl) {
+        accountDetailsBadgesEl.addEventListener('click', (e) => {
+            const iconEl = e.target.closest('.badge-icon');
+            if (!iconEl || !activeDetailsAccount) return;
+            e.stopPropagation();
+            hideBadgeHoverCard();
+            openBadgesModal(activeDetailsAccount, iconEl.dataset.badgeId);
+        });
+    }
+
+    const badgesModalEl = document.getElementById('badgesModal');
+    const closeBadgesModalBtn = document.getElementById('closeBadgesModalBtn');
+    const badgesModalGridEl = document.getElementById('badgesModalGrid');
+    const badgesModalSidebarEl = badgesModalEl ? badgesModalEl.querySelector('.badges-modal-sidebar') : null;
+    const badgesModalDetailEl = document.getElementById('badgesModalDetail');
+    if (closeBadgesModalBtn) closeBadgesModalBtn.addEventListener('click', closeBadgesModal);
+    if (badgesModalEl) {
+        badgesModalEl.addEventListener('click', (e) => {
+            if (e.target === badgesModalEl) closeBadgesModal();
+        });
+    }
+    if (badgesModalGridEl) {
+        badgesModalGridEl.addEventListener('click', (e) => {
+            const tile = e.target.closest('.badges-grid-tile');
+            if (!tile || !activeBadgesModalState) return;
+            const bid = tile.dataset.badgeId;
+            if (!bid || bid === activeBadgesModalState.selectedId) return;
+            activeBadgesModalState.selectedId = bid;
+            renderBadgesModalGrid();
+            renderBadgesModalDetail();
+        });
+    }
+    if (badgesModalSidebarEl) badgesModalSidebarEl.addEventListener('scroll', hideBadgeHoverCard, { passive: true });
+    if (badgesModalDetailEl) badgesModalDetailEl.addEventListener('scroll', hideBadgeHoverCard, { passive: true });
+
+    document.addEventListener('mouseover', (e) => {
+        if (isBadgesModalOpen()) return;
+        const trigger = e.target && e.target.closest ? e.target.closest('.badge-icon') : null;
+        if (!trigger || trigger === activeHoverAnchor) return;
+        const badgeObj = resolveHoveredBadgeObject(trigger);
+        if (!badgeObj) return;
+        hideBadgeHoverCard();
+        activeHoverAnchor = trigger;
+        badgeHoverShowTimer = setTimeout(() => {
+            badgeHoverShowTimer = null;
+            if (activeHoverAnchor !== trigger || isBadgesModalOpen() || trigger.isConnected === false) return;
+            const latestBadge = resolveHoveredBadgeObject(trigger) || badgeObj;
+            showBadgeHoverCard(trigger, latestBadge);
+        }, HOVER_PREVIEW_DELAY_MS);
+    });
+    document.addEventListener('mouseout', (e) => {
+        if (!activeHoverAnchor) return;
+        const fromTrigger = e.target && e.target.closest ? e.target.closest('.badge-icon') : null;
+        if (!fromTrigger || fromTrigger !== activeHoverAnchor) return;
+        const toTrigger = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('.badge-icon') : null;
+        if (toTrigger === activeHoverAnchor) return;
+        hideBadgeHoverCard();
+    });
+    window.addEventListener('blur', hideBadgeHoverCard);
 
     deleteAllBtn.addEventListener('click', async () => {
         if (accounts.length === 0 && folders.length === 0) return;
@@ -3582,57 +4805,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 if (existingIndex !== -1) {
                     newAccounts = [...accounts];
-                    newAccounts[existingIndex] = {
-                        ...newAccounts[existingIndex],
-                        _profileChecked: true,
-                        _profileVersion: 4,
-                        username: userData.username,
-                        global_name: userData.global_name,
-                        avatar: userData.avatar,
-                        email: userData.email || newAccounts[existingIndex].email || null,
-                        phone: userData.phone || newAccounts[existingIndex].phone || null,
-                        verified: userData.verified !== undefined ? !!userData.verified : (newAccounts[existingIndex].verified || false),
-                        mfa_enabled: userData.mfa_enabled !== undefined ? !!userData.mfa_enabled : (newAccounts[existingIndex].mfa_enabled || false),
-                        locale: userData.locale || newAccounts[existingIndex].locale || null,
-                        premium_type: userData.premium_type,
-                        premium_since: userData.premium_since || null,
-                        premium_guild_since: userData.premium_guild_since || null,
-                        legacy_username: userData.legacy_username || null,
-                        badges: userData.badges || [],
-                        gifting_count: typeof userData.gifting_count === 'number' ? userData.gifting_count : (newAccounts[existingIndex].gifting_count || 0),
-                        gifting_tier: typeof userData.gifting_tier === 'number' ? userData.gifting_tier : (newAccounts[existingIndex].gifting_tier || 0),
-                        flags: userData.flags,
-                        public_flags: userData.public_flags,
-                        token: token,
-                        folderId: selectedFolderId || newAccounts[existingIndex].folderId || null,
-                        invalid: false
-                    };
+                    newAccounts[existingIndex] = applyUserDataToAccount(newAccounts[existingIndex], userData, token, selectedFolderId);
                 } else {
-                    newAccounts = [...accounts, {
-                        id: userData.id,
-                        _profileChecked: true,
-                        _profileVersion: 4,
-                        username: userData.username,
-                        global_name: userData.global_name,
-                        avatar: userData.avatar,
-                        email: userData.email || null,
-                        phone: userData.phone || null,
-                        verified: !!userData.verified,
-                        mfa_enabled: !!userData.mfa_enabled,
-                        locale: userData.locale || null,
-                        premium_type: userData.premium_type,
-                        premium_since: userData.premium_since || null,
-                        premium_guild_since: userData.premium_guild_since || null,
-                        legacy_username: userData.legacy_username || null,
-                        badges: userData.badges || [],
-                        gifting_count: typeof userData.gifting_count === 'number' ? userData.gifting_count : 0,
-                        gifting_tier: typeof userData.gifting_tier === 'number' ? userData.gifting_tier : 0,
-                        flags: userData.flags,
-                        public_flags: userData.public_flags,
-                        token: token,
-                        folderId: selectedFolderId,
-                        invalid: false
-                    }];
+                    newAccounts = [...accounts, applyUserDataToAccount(null, userData, token, selectedFolderId)];
                 }
                 await saveAccounts(newAccounts);
                 cancelAddBtn.click();
@@ -3995,14 +5170,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 accounts = changes.discordAccounts.newValue || [];
                 renderAccounts();
             }
+            let shouldRenderBadgeSettings = false;
             if (changes.showBadges) {
                 showBadges = changes.showBadges.newValue !== false;
                 if (showBadgesToggle) {
                     showBadgesToggle.checked = showBadges;
                 }
                 if (!showBadges) {
-                    hideBadgesPopover(0);
+                    hideBadgeHoverCard();
+                    closeBadgesModal();
                 }
+                shouldRenderBadgeSettings = true;
+            }
+            if (changes.maxVisibleBadges) {
+                maxVisibleBadges = clampVisibleBadgesCount(changes.maxVisibleBadges.newValue);
+                shouldRenderBadgeSettings = true;
+            }
+            if (shouldRenderBadgeSettings) {
+                updateVisibleBadgesSettingUI();
                 renderAccounts();
             }
         }
@@ -4180,7 +5365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (listContainer) {
         listContainer.addEventListener('scroll', () => {
-            hideBadgesPopover(0);
+            hideBadgeHoverCard();
             const openMenuWrapper = listContainer.querySelector('.account-menu-wrapper.open');
             if (openMenuWrapper) {
                 adjustAccountMenuPosition(openMenuWrapper);
@@ -4188,8 +5373,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, { passive: true });
     }
     document.addEventListener('pointerdown', (e) => {
-        if (!e.target.closest('.account-badges') && !e.target.closest('.badges-floating-popover')) {
-            hideBadgesPopover(0);
+        if (!e.target.closest('.badge-icon') && !e.target.closest('.badges-grid-tile')) {
+            hideBadgeHoverCard();
         }
     });
 
@@ -4824,7 +6009,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             closeAllFolderMenus();
             closeAllAccountMenus();
-            hideBadgesPopover(0);
+            hideBadgeHoverCard();
 
             pendingDrag = {
                 type,
@@ -4888,10 +6073,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 cancelDragEngine();
                 return;
             }
+            hideBadgeHoverCard();
+            if (isBadgesModalOpen()) {
+                closeBadgesModal();
+                return;
+            }
             closeUpdateTokenModal();
             closeAccountDetailsModal();
             closeAddAccountModal();
-            hideBadgesPopover(0);
             closeAllFolderMenus();
             closeAllAccountMenus();
             document.querySelectorAll('.custom-select-container.open').forEach(closeCustomSelect);

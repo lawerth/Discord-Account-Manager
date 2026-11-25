@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Discord Account Manager is a modern browser extension that allows you to quickly switch between multiple Discord accounts, organize your accounts with folders, and securely log in using tokens.
+  Discord Account Manager is a modern browser extension that allows you to quickly switch between multiple Discord accounts, organize your accounts with color-coded folders, inspect Discord profile badges, and manage tokens securely in local storage.
 </p>
 
 <p align="center">
@@ -15,14 +15,30 @@
 
 # ✨ Features
 
-- **🚀 Multi-Account Management:** Save an unlimited number of Discord accounts and switch between them with a single click.
-- **🔍 Advanced Search:** Instant search among your accounts by username.
-- **📁 Folder System:** Categorize your accounts (work, gaming, personal, etc.) for a more organized view.
-- **⚡ Automatic Token Extraction:** Instantly add your account to the list by extracting the token from an open Discord tab with one click.
-- **➕ Add Account Your Way:** Add accounts by pasting tokens (single or bulk `.txt` import) or by signing in directly on `discord.com/login` without affecting existing sessions.
-- **✅ Token Validation:** Bulk check if your saved tokens are still valid.
-- **🌓 Theme Support:** Eye-friendly Dark Mode and Light Mode options.
-- **🛡️ Security and Privacy:** Your tokens are only stored in your browser's local storage and are never sent to any server.
+- **🚀 Multi-Account Switching:** Save multiple Discord accounts with live avatars, presence indicators, and one-click switching.
+- **📁 Color-Coded Folders & Drag-and-Drop:** Organize accounts into collapsible colored folders and reorder accounts or folders seamlessly.
+- **🔍 Instant Search:** Filter accounts and folders by display name, username, or folder name in real time.
+- **🏅 Discord Badges & Hover Previews:** View visible and hidden profile badges (`Nitro`, `Server Boosting`, `Gifting`, `Account Age`, `Game Time`, `Game Variety`, `Streaming`, `Quests`, `Orbs`, and legacy badges) with a Discord-style hover card, two-column Badges panel, progress bars, tier milestone grids, and configurable row limit (`3–6`).
+- **👤 Rich Account Details:** Inspect profile banner and avatar (with one-click URL copy), User ID, masked token, creation date, email/verification, phone, 2FA status, Nitro tier, and folder assignment.
+- **⚡ Auto Extract & Multiple Add Modes:** Extract the active Discord tab token in one click, paste single or bulk `.txt` tokens, or sign in via `discord.com/login` without disturbing existing sessions.
+- **🩺 Health Checks & Backups:** Bulk validate saved tokens with health summaries and export or restore full JSON backups.
+- **🎨 9 Themes & 13 Languages:** Switch between `Discord Dark`, `AMOLED`, `Light`, `Midnight Blurple`, `Retro Storm`, `Neon Nights`, `Sunset`, `Mint Apple`, and `Hanami` across 13 localized UI languages.
+- **🛡️ Local-Only Privacy:** Tokens are stored exclusively in browser local storage (`chrome.storage.local`) and never transmitted to external third-party servers.
+
+---
+
+# 📸 Screenshots
+
+<table>
+  <tr>
+    <td align="center"><b>Account List</b><br><img src="assets/screenshot-1.png" alt="Account List &amp; Badge Hover Preview" width="100%"></td>
+    <td align="center"><b>Badges Panel</b><br><img src="assets/screenshot-2.png" alt="Discord-Style Badges Panel" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Account Details Modal</b><br><img src="assets/screenshot-3.png" alt="Account Details Modal" width="100%"></td>
+    <td align="center"><b>Settings</b><br><img src="assets/screenshot-4.png" alt="Settings &amp; Visible Badges Control" width="100%"></td>
+  </tr>
+</table>
 
 ---
 

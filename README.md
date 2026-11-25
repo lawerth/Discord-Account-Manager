@@ -7,8 +7,21 @@
 </p>
 
 <p align="center">
+  <a href="https://chromewebstore.google.com/detail/daibnnodfmdiodinihdmelconnbfgefo">
+    <img src="https://img.shields.io/chrome-web-store/users/daibnnodfmdiodinihdmelconnbfgefo?label=users&color=5865F2" alt="Chrome Web Store Users">
+  </a>
+  <a href="https://chromewebstore.google.com/detail/daibnnodfmdiodinihdmelconnbfgefo">
+    <img src="https://img.shields.io/chrome-web-store/rating/daibnnodfmdiodinihdmelconnbfgefo?label=rating&color=f0b232" alt="Chrome Web Store Rating">
+  </a>
+  <a href="https://chromewebstore.google.com/detail/daibnnodfmdiodinihdmelconnbfgefo">
+    <img src="https://img.shields.io/chrome-web-store/v/daibnnodfmdiodinihdmelconnbfgefo?label=chrome%20web%20store&color=blue" alt="Chrome Web Store Version">
+  </a>
+  <a href="https://github.com/lawerth/Discord-Account-Manager/stargazers">
+    <img src="https://img.shields.io/github/stars/lawerth/Discord-Account-Manager?color=yellow" alt="GitHub Stars">
+  </a>
   <img src="https://img.shields.io/github/manifest-json/v/lawerth/Discord-Account-Manager?label=version&color=blue" alt="Version">
   <img src="https://img.shields.io/badge/manifest-v3-orange.svg" alt="Manifest">
+  <img src="https://img.shields.io/github/license/lawerth/Discord-Account-Manager?color=green" alt="License">
 </p>
 
 ---

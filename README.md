@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Discord Account Manager is a modern browser extension that allows you to quickly switch between multiple Discord accounts, organize your accounts with color-coded folders, inspect Discord profile badges, and manage tokens securely in local storage.
+  Discord Account Manager is a modern browser extension that allows you to quickly switch between multiple Discord accounts, organize your accounts with folders, inspect Discord profile badges, and manage tokens securely in local storage.
 </p>
 
 <p align="center">
